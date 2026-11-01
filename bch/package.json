@@ -1,0 +1,1 @@
+{"name":"blaze-swap-bch","private":true,"type":"module","scripts":{"test":"node --test"},"dependencies":{"@bitauth/libauth":"^3.1.0-next.8","cashc":"^0.14.0","cashscript":"^0.14.0"}}

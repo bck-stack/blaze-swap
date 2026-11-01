@@ -1,0 +1,20 @@
+pragma cashscript ^0.14.0;
+
+// One side of an atomic swap on BCH. It holds the coins (BCH or a CashToken such as PUSD) until either
+// the recipient reveals the 32-byte secret, or the timeout passes and the sender takes them back.
+// The same sha256 hash locks the other chain's side, so revealing the secret here unlocks both.
+contract SwapLock(bytes20 recipientPkh, bytes20 refundPkh, bytes32 secretHash, int timeout) {
+    function claim(pubkey recipientPk, sig recipientSig, bytes secret) {
+        require(secret.length == 32);
+        require(sha256(secret) == secretHash);
+        require(hash160(recipientPk) == recipientPkh);
+        require(checkSig(recipientSig, recipientPk));
+    }
+
+    // timeout is a block height or a unix time (>= 500,000,000), checked against the transaction's locktime.
+    function refund(pubkey refundPk, sig refundSig) {
+        require(tx.time >= timeout);
+        require(hash160(refundPk) == refundPkh);
+        require(checkSig(refundSig, refundPk));
+    }
+}
