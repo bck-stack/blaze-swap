@@ -45,9 +45,12 @@ const utxos = await provider.getUtxos(w.address);
 const tokenIn = utxos.find((u) => u.token?.category === PUSD_TEST && !u.token.nft && u.token.amount >= AMOUNT);
 const bchIn = utxos.filter((u) => !u.token).sort((a, b) => Number(b.satoshis - a.satoshis));
 if (!tokenIn) throw new Error("no PUSD-test UTXO with at least 10.00");
-const inputs = [tokenIn, ...bchIn];
-const total = inputs.reduce((s, u) => s + u.satoshis, 0n);
 const need = DUST * 2n + FEE * 2n; // lock output + token change, and this fee plus the next one
+// Only as many plain-BCH inputs as needed, largest first (5 Nov 2026: a faucet refill left several small UTXOs; taking
+// all of them made the lock bigger than FEE pays for at 1 sat/byte).
+const inputs = [tokenIn];
+for (const u of bchIn) { if (inputs.reduce((s, x) => s + x.satoshis, 0n) >= need + 546n) break; inputs.push(u); }
+const total = inputs.reduce((s, u) => s + u.satoshis, 0n);
 if (total < need + 546n) throw new Error(`not enough BCH: ${total} sat in the wallet, need about ${need + 546n}; get chipnet tBCH from a faucet for ${w.address}`);
 const lock = new TransactionBuilder({ provider });
 for (const u of inputs) lock.addInput(u, signer.unlockP2PKH());
