@@ -1,0 +1,296 @@
+{
+  "contractName": "SwapLock",
+  "abi": [
+    {
+      "inputs": [],
+      "name": "AlreadyExists",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "AlreadySettled",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "Expired",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "InvalidLock",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "NotExpired",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "NotFound",
+      "type": "error"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "token",
+          "type": "address"
+        }
+      ],
+      "name": "SafeERC20FailedOperation",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "WrongSecret",
+      "type": "error"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "id",
+          "type": "bytes32"
+        },
+        {
+          "indexed": false,
+          "internalType": "bytes32",
+          "name": "secret",
+          "type": "bytes32"
+        }
+      ],
+      "name": "Claimed",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "id",
+          "type": "bytes32"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "sender",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "recipient",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "address",
+          "name": "token",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "bytes32",
+          "name": "secretHash",
+          "type": "bytes32"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint64",
+          "name": "timeout",
+          "type": "uint64"
+        }
+      ],
+      "name": "Locked",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "id",
+          "type": "bytes32"
+        }
+      ],
+      "name": "Refunded",
+      "type": "event"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "id",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "bytes32",
+          "name": "secret",
+          "type": "bytes32"
+        }
+      ],
+      "name": "claim",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "contract IERC20",
+          "name": "token",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "recipient",
+          "type": "address"
+        },
+        {
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        },
+        {
+          "internalType": "bytes32",
+          "name": "secretHash",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "uint64",
+          "name": "timeout",
+          "type": "uint64"
+        }
+      ],
+      "name": "lock",
+      "outputs": [
+        {
+          "internalType": "bytes32",
+          "name": "id",
+          "type": "bytes32"
+        }
+      ],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "contract IERC20",
+          "name": "token",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "sender",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "recipient",
+          "type": "address"
+        },
+        {
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        },
+        {
+          "internalType": "bytes32",
+          "name": "secretHash",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "uint64",
+          "name": "timeout",
+          "type": "uint64"
+        }
+      ],
+      "name": "lockId",
+      "outputs": [
+        {
+          "internalType": "bytes32",
+          "name": "",
+          "type": "bytes32"
+        }
+      ],
+      "stateMutability": "pure",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "",
+          "type": "bytes32"
+        }
+      ],
+      "name": "locks",
+      "outputs": [
+        {
+          "internalType": "contract IERC20",
+          "name": "token",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "sender",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "recipient",
+          "type": "address"
+        },
+        {
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        },
+        {
+          "internalType": "bytes32",
+          "name": "secretHash",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "uint64",
+          "name": "timeout",
+          "type": "uint64"
+        },
+        {
+          "internalType": "bool",
+          "name": "settled",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "id",
+          "type": "bytes32"
+        }
+      ],
+      "name": "refund",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    }
+  ],
+  "bytecode": "0x6080604052348015600e575f5ffd5b5061091d8061001c5f395ff3fe608060405234801561000f575f5ffd5b5060043610610054575f3560e01c8062f44c6b1461005857806334e1fd001461007e5780637249fbb61461009157806384cc9dfb146100a6578063ed5e8437146100b9575b5f5ffd5b61006b6100663660046107c4565b61016f565b6040519081526020015b60405180910390f35b61006b61008c36600461082c565b6101d1565b6100a461009f366004610883565b6103b3565b005b6100a46100b436600461089a565b6104ad565b61011f6100c7366004610883565b5f602081905290815260409020805460018201546002830154600384015460048501546005909501546001600160a01b03948516959385169490921692909167ffffffffffffffff811690600160401b900460ff1687565b604080516001600160a01b039889168152968816602088015294909616938501939093526060840191909152608083015267ffffffffffffffff1660a082015290151560c082015260e001610075565b604080516001600160a01b0397881660208083019190915296881681830152949096166060850152608084019290925260a083015267ffffffffffffffff1660c0808301919091528351808303909101815260e0909101909252815191012090565b5f8315806101e657506001600160a01b038516155b806101fb5750428267ffffffffffffffff1611155b1561021957604051630f10a90160e21b815260040160405180910390fd5b61022786338787878761016f565b5f818152602081905260409020600101549091506001600160a01b0316156102625760405163119b4fd360e11b815260040160405180910390fd5b6040805160e0810182526001600160a01b038089168083523360208085018281528b8516868801908152606087018c8152608088018c815267ffffffffffffffff808d1660a08b019081525f60c08c018181528e8252978190529b909b2099518a54908a166001600160a01b0319918216178b55945160018b018054918b16918716919091179055925160028a018054919099169416939093179096559451600387015551600486015594516005909401805495511515600160401b0268ffffffffffffffffff19909616949093169390931793909317905561034791903087610647565b604080516001600160a01b0388811682526020820187905291810185905267ffffffffffffffff8416606082015290861690339083907f114047c75cfbf58ed5a7bfc41259c626bfd41cf63c6d7e2d1a7ae6d6dde162889060800160405180910390a495945050505050565b5f81815260208190526040902060018101546001600160a01b03166103eb5760405163c5723b5160e01b815260040160405180910390fd5b6005810154600160401b900460ff16156104175760405162560ff960e81b815260040160405180910390fd5b600581015467ffffffffffffffff164210156104465760405163d0404f8560e01b815260040160405180910390fd5b60058101805460ff60401b1916600160401b17905560018101546003820154825461047f926001600160a01b0391821692911690610688565b60405182907ffe509803c09416b28ff3d8f690c8b0c61462a892c46d5430c8fb20abe472daf0905f90a25050565b5f82815260208190526040902060018101546001600160a01b03166104e55760405163c5723b5160e01b815260040160405180910390fd5b6005810154600160401b900460ff16156105115760405162560ff960e81b815260040160405180910390fd5b600581015467ffffffffffffffff16421061053f57604051630407b05b60e31b815260040160405180910390fd5b806004015460028360405160200161055991815260200190565b60408051601f1981840301815290829052610573916108ba565b602060405180830381855afa15801561058e573d5f5f3e3d5ffd5b5050506040513d601f19601f820116820180604052508101906105b191906108d0565b146105cf57604051633e1b126f60e21b815260040160405180910390fd5b60058101805460ff60401b1916600160401b179055600281015460038201548254610608926001600160a01b0391821692911690610688565b827f38d6042dbdae8e73a7f6afbabd3fbe0873f9f5ed3cd71294591c3908c2e65fee8360405161063a91815260200190565b60405180910390a2505050565b6106558484848460016106c2565b61068257604051635274afe760e01b81526001600160a01b03851660048201526024015b60405180910390fd5b50505050565b610695838383600161072f565b6106bd57604051635274afe760e01b81526001600160a01b0384166004820152602401610679565b505050565b6040516323b872dd60e01b5f8181526001600160a01b038781166004528616602452604485905291602083606481808c5af1925060015f5114831661071e578383151615610712573d5f823e3d81fd5b5f883b113d1516831692505b604052505f60605295945050505050565b60405163a9059cbb60e01b5f8181526001600160a01b038616600452602485905291602083604481808b5af1925060015f51148316610785578383151615610779573d5f823e3d81fd5b5f873b113d1516831692505b60405250949350505050565b6001600160a01b03811681146107a5575f5ffd5b50565b803567ffffffffffffffff811681146107bf575f5ffd5b919050565b5f5f5f5f5f5f60c087890312156107d9575f5ffd5b86356107e481610791565b955060208701356107f481610791565b9450604087013561080481610791565b9350606087013592506080870135915061082060a088016107a8565b90509295509295509295565b5f5f5f5f5f60a08688031215610840575f5ffd5b853561084b81610791565b9450602086013561085b81610791565b93506040860135925060608601359150610877608087016107a8565b90509295509295909350565b5f60208284031215610893575f5ffd5b5035919050565b5f5f604083850312156108ab575f5ffd5b50508035926020909101359150565b5f82518060208501845e5f920191825250919050565b5f602082840312156108e0575f5ffd5b505191905056fea264697066735822122078305e3438c94ad9b2c2c7ac7df13fec16474c30c265ba0d4fad0c3da4b4ad4c64736f6c634300081c0033"
+}
