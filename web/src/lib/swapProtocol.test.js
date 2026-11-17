@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  BLAZE_COMPLIANCE,
   NETWORK_CONFIG,
   computeEvmLockId,
   computePairedTimeouts,
@@ -45,7 +46,7 @@ describe("swapProtocol", () => {
     expect(formatTokenUnits(25_000_000n, 6)).toBe("25");
   });
 
-  it("computes deterministic EVM lockId and paired timeouts", () => {
+  it("computes Solidity-matching EVM lockId and paired timeouts", () => {
     const id = computeEvmLockId({
       token: NETWORK_CONFIG.mainnet.evmUsdcAddress,
       sender: "0x1111111111111111111111111111111111111111",
@@ -54,7 +55,9 @@ describe("swapProtocol", () => {
       secretHash: "0x" + "aa".repeat(32),
       timeout: 1800000000,
     });
-    expect(id).toMatch(/^0x[0-9a-f]{64}$/);
+    expect(id).toBe(
+      "0x62737d53bac4648e86287a8f068b3933c56503a77ec1c10968126f828a759647"
+    );
 
     const { makerTimeout, takerTimeout } = computePairedTimeouts(1760000000, 12, 4);
     expect(makerTimeout).toBe(1760000000 + 12 * 3600);
@@ -62,8 +65,12 @@ describe("swapProtocol", () => {
     expect(makerTimeout).toBeGreaterThan(takerTimeout);
   });
 
-  it("validates 32-byte hex values", () => {
+  it("validates 32-byte hex values and BLAZE CashTokens donation address", () => {
     expect(normalizeHex32("aa".repeat(32))).toBe("0x" + "aa".repeat(32));
     expect(() => normalizeHex32("0x1234")).toThrow();
+    expect(BLAZE_COMPLIANCE.donationAddress.startsWith("bitcoincash:z")).toBe(true);
+    expect(decodeCashAddressPkh(BLAZE_COMPLIANCE.donationAddress)).toMatch(
+      /^0x[0-9a-f]{40}$/
+    );
   });
 });

@@ -255,19 +255,27 @@ export async function pollEvmClaimedSecret({
   networkId = "mainnet",
   swapLockAddress,
   lockId,
-  lookbackBlocks = 5000n,
+  lookbackBlocks = 24000n,
+  chunkSize = 4000n,
 }) {
   if (!swapLockAddress || !lockId) return null;
   const client = getEvmPublicClient(networkId);
   const latest = await client.getBlockNumber();
-  const fromBlock = latest > lookbackBlocks ? latest - lookbackBlocks : 0n;
-  const logs = await client.getLogs({
-    address: swapLockAddress,
-    event: CLAIMED_EVENT,
-    args: { id: lockId },
-    fromBlock,
-    toBlock: latest,
-  });
-  if (logs.length === 0) return null;
-  return logs[logs.length - 1].args.secret || null;
+  const minBlock = latest > lookbackBlocks ? latest - lookbackBlocks : 0n;
+  for (let to = latest; to >= minBlock; ) {
+    const from = to > chunkSize ? (to - chunkSize > minBlock ? to - chunkSize : minBlock) : minBlock;
+    const logs = await client.getLogs({
+      address: swapLockAddress,
+      event: CLAIMED_EVENT,
+      args: { id: lockId },
+      fromBlock: from,
+      toBlock: to,
+    });
+    if (logs.length > 0) {
+      return logs[logs.length - 1].args.secret || null;
+    }
+    if (from === 0n || from <= minBlock) break;
+    to = from - 1n;
+  }
+  return null;
 }

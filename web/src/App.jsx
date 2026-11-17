@@ -20,6 +20,7 @@ import {
   fetchAddressBalances,
   fetchContractLockState,
   fundBchSwapLockWithWallet,
+  pollBchClaimedSecret,
   refundBchSwapLock,
 } from "./lib/bchBridge.js";
 import {
@@ -298,6 +299,7 @@ export default function App() {
         const lockContract =
           swap.evmContractAddr || swapLockAddresses[swap.networkId] || "";
         let evmState = null;
+        let capturedSecret = null;
         if (lockContract) {
           evmState = await fetchEvmLockState({
             networkId: swap.networkId,
@@ -305,23 +307,30 @@ export default function App() {
             lockId: swap.evmLockId,
           });
           if (watcherActive && !swap.secret) {
-            const revealed = await pollEvmClaimedSecret({
+            capturedSecret = await pollEvmClaimedSecret({
               networkId: swap.networkId,
               swapLockAddress: lockContract,
               lockId: swap.evmLockId,
             });
-            if (revealed) {
-              setSwaps((prev) =>
-                prev.map((s) =>
-                  s.id === swap.id ? { ...s, secret: revealed } : s
-                )
-              );
-              setStatusMsg({
-                type: "success",
-                text: "Watcher captured revealed 32-byte secret from Base Claimed event!",
-              });
-            }
           }
+        }
+        if (watcherActive && !swap.secret && !capturedSecret) {
+          capturedSecret = await pollBchClaimedSecret({
+            networkId: swap.networkId,
+            contractAddress: swap.bchContractAddress,
+            secretHash: swap.secretHash,
+          });
+        }
+        if (capturedSecret) {
+          setSwaps((prev) =>
+            prev.map((s) =>
+              s.id === swap.id ? { ...s, secret: capturedSecret } : s
+            )
+          );
+          setStatusMsg({
+            type: "success",
+            text: "Watcher captured revealed 32-byte secret on-chain!",
+          });
         }
         setLockStates((prev) => ({
           ...prev,
@@ -692,7 +701,7 @@ export default function App() {
 
           <section className="card">
             <h2 className="card-title">
-              <span>Live Bridge & Wallet Telemetry</span>
+              <span>Wallet & Lock Status</span>
               <button type="button" className="btn btn-sm" onClick={refreshBalances}>
                 Refresh
               </button>
@@ -873,6 +882,9 @@ export default function App() {
                   disabled={!!busyAction || !manager || !bchAccount || !activeSwap.secret}
                   onClick={() =>
                     runSwapAction("bch-claim", async () => {
+                      if (bchAccount.pkhHex !== activeSwap.bchRecipientPkh) {
+                        throw new Error("Connected BCH wallet is not the swap recipient.");
+                      }
                       const { txid } = await claimBchSwapLock({
                         networkId: activeSwap.networkId,
                         manager,
@@ -918,6 +930,9 @@ export default function App() {
                   disabled={!!busyAction || !manager || !bchAccount}
                   onClick={() =>
                     runSwapAction("bch-refund", async () => {
+                      if (bchAccount.pkhHex !== activeSwap.bchRefundPkh) {
+                        throw new Error("Connected BCH wallet is not the refund address.");
+                      }
                       const { txid } = await refundBchSwapLock({
                         networkId: activeSwap.networkId,
                         manager,

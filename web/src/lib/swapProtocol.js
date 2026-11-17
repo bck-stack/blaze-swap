@@ -4,7 +4,7 @@ import {
   encodeCashAddress,
   hash160,
 } from "@bitauth/libauth";
-import { encodePacked, keccak256 } from "viem";
+import { encodeAbiParameters, keccak256 } from "viem";
 
 export const NETWORK_CONFIG = {
   mainnet: {
@@ -26,7 +26,9 @@ export const NETWORK_CONFIG = {
     evmUsdcAddress: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
     evmUsdcSymbol: "USDC",
     evmUsdcDecimals: 6,
-    defaultSwapLockAddress: import.meta.env.VITE_SWAP_LOCK_BASE || "",
+    defaultSwapLockAddress:
+      import.meta.env.VITE_SWAP_LOCK_BASE ||
+      "0xf66642c35cf4a36fcd7d3bcf87422791280f8901",
   },
   chipnet: {
     id: "chipnet",
@@ -58,8 +60,12 @@ export const BLAZE_COMPLIANCE = {
     import.meta.env.VITE_LIVE_DEMO_URL ||
     "https://bck-stack.github.io/blaze-swap/",
   liveCodeUrl: "https://github.com/bck-stack/blaze-swap",
-  slidesUrl: import.meta.env.VITE_SLIDES_URL || "",
-  donationAddress: import.meta.env.VITE_EMBER_DONATION_ADDR || "",
+  slidesUrl:
+    import.meta.env.VITE_SLIDES_URL ||
+    "https://docs.google.com/presentation/d/1HdeE75unpU8LzudUO_zLxLNdqm_7vt2Nj27XM1ON9dE/edit?usp=sharing",
+  donationAddress:
+    import.meta.env.VITE_EMBER_DONATION_ADDR ||
+    "bitcoincash:zpue5yghv0f3f7860zvfslp76lagfa97eysjj4wsf0",
 };
 
 export function bytesToHex(bytes) {
@@ -141,8 +147,15 @@ export function computeEvmLockId({
   timeout,
 }) {
   return keccak256(
-    encodePacked(
-      ["address", "address", "address", "uint256", "bytes32", "uint64"],
+    encodeAbiParameters(
+      [
+        { type: "address" },
+        { type: "address" },
+        { type: "address" },
+        { type: "uint256" },
+        { type: "bytes32" },
+        { type: "uint64" },
+      ],
       [
         token,
         sender,
