@@ -53,8 +53,18 @@ Things we decided on purpose:
 | Lock | [0x9d2c64da…bbe6](https://basescan.org/tx/0x9d2c64dada3e465ff4c5567e9fc35c88f3a5c9795d46b3fd05b44e3aa071bbe6) |
 | Claim with the secret | [0x1a3c0b8e…1d1c](https://basescan.org/tx/0x1a3c0b8e98f14e7dda9df90365a04e08deac7217946e4d0b722c1620a71e1d1c) |
 
-`web/scripts/mainnet-swap.mjs` runs a whole swap across both mainnets (USDC lock on Base, PUSD lock on BCH, BCH claim,
-secret read back from the BCH claim, Base claim) with one operator holding both wallets.
+One whole swap across both mainnets, 17 Nov 2026, with `web/scripts/mainnet-swap.mjs` (one operator holding both
+wallets, so no value changed hands; what it shows is the two contracts settling in the order the page drives them):
+
+| Step | Chain | Transaction |
+|---|---|---|
+| Maker locks 0.05 USDC (hash `0x77c7e5ea…fc94`) | Base | [0xd350ad6f…f216b](https://basescan.org/tx/0xd350ad6f7239cc2206a16ae524c6edefab9935caa31b595ea3907358ce7f216b) |
+| Taker checks the Base lock, then locks 0.00005 BCH under the same hash | Bitcoin Cash | [b37aed3b…c574](https://blockchair.com/bitcoin-cash/transaction/b37aed3b840f683eadfc1f0a2dab9847077df5f833de1baa7a0364e3e023c574) |
+| Maker claims the BCH; the secret is now in that transaction's input | Bitcoin Cash | [452e7b7c…73ea](https://blockchair.com/bitcoin-cash/transaction/452e7b7cedc59ef6bdb891d42d05c9bf0370b30462744df17ac339952a6e73ea) |
+| The secret is read back from the BCH claim and claims the USDC | Base | [0x837b4c50…1a0e](https://basescan.org/tx/0x837b4c5097123f761e2baf34e00b88dd43a47b4265b6f0255dd15b0b7f9e1a0e) |
+
+The Base `Claimed` event carries `0x33bff9a2…`, the same 32 bytes the BCH claim revealed. The script runs the same flow
+with PUSD instead of BCH (`--asset pusd`) once the wallet holds PUSD.
 
 ## Built during the build week (14 to 22 Nov)
 
@@ -67,7 +77,7 @@ only connected a BCH wallet. Since then:
 - BCH transactions signed through WizardConnect with fees sized from the inputs, token change kept, NFT UTXOs skipped
 - a fix found in review: the page derived the Base lock id with `encodePacked` while the contract uses `abi.encode`,
   so the taker would have looked for a lock that never exists; a test now pins the id to the contract's output
-- `mainnet-swap.mjs`, the deploy script and the Base proof transactions above
+- `mainnet-swap.mjs`, the deploy script and the mainnet transactions above
 
 ## Run it
 

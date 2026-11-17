@@ -22,7 +22,7 @@ import {
   binToHex,
   secp256k1,
 } from "@bitauth/libauth";
-import { createPublicClient, createWalletClient, encodeAbiParameters, http, keccak256, parseAbiItem } from "viem";
+import { createPublicClient, createWalletClient, encodeAbiParameters, http, keccak256 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { base } from "viem/chains";
 
@@ -83,7 +83,7 @@ const LOCK_ABI = [
   { type: "function", name: "claim", stateMutability: "nonpayable", inputs: [{ type: "bytes32" }, { type: "bytes32" }], outputs: [] },
   { type: "function", name: "locks", stateMutability: "view", inputs: [{ type: "bytes32" }], outputs: [{ type: "address" }, { type: "address" }, { type: "address" }, { type: "uint256" }, { type: "bytes32" }, { type: "uint64" }, { type: "bool" }] },
 ];
-const CLAIMED = parseAbiItem("event Claimed(bytes32 indexed id, bytes32 secret)");
+const CLAIMED_TOPIC = "0x38d6042dbdae8e73a7f6afbabd3fbe0873f9f5ed3cd71294591c3908c2e65fee"; // Claimed(bytes32 indexed id, bytes32 secret)
 
 const log = (step, msg) => console.log(`${step.padEnd(14)} ${msg}`);
 const proof = [];
@@ -193,7 +193,7 @@ const locked = bchLockTxid
   : { txid: "00".repeat(32), vout: 0, satoshis: lockAmount, token: asset === "pusd" ? { category: PUSD, amount: PUSD_AMOUNT } : undefined, lockingBytecode: contract.lockingBytecode };
 const feeIn = bchLockTxid
   ? (await provider.getUtxos(bchAddr)).find((u) => u.txid === bchLockTxid && !u.token)
-  : { txid: "11".repeat(32), vout: inputs.length, satoshis: lockChange };
+  : { txid: "11".repeat(32), vout: inputs.length, satoshis: lockChange, lockingBytecode: binToHex(cashAddressToLockingBytecode(bchAddr).bytecode) };
 const claimTx = new TransactionBuilder({ provider });
 claimTx.addInput(locked, contract.unlock.claim(bchPub, signer, secret));
 claimTx.addInput(feeIn, signer.unlockP2PKH());
@@ -224,9 +224,12 @@ if (claimTxid) {
 
 // --- 5. taker claims the USDC on Base with it ----------------------------------------------------------------------
 if (!dry) {
-  await sendEvm("base claim", { address: SWAP_LOCK, abi: LOCK_ABI, functionName: "claim", args: [lockId, `0x${Buffer.from(revealed).toString("hex")}`] });
-  const logs = await pub.getLogs({ address: SWAP_LOCK, event: CLAIMED, args: { id: lockId }, fromBlock: (await pub.getBlockNumber()) - 50n });
-  log("done", `Base Claimed event carries the same secret: ${logs.at(-1)?.args.secret === `0x${Buffer.from(revealed).toString("hex")}`}`);
+  const claimHash = await sendEvm("base claim", { address: SWAP_LOCK, abi: LOCK_ABI, functionName: "claim", args: [lockId, `0x${Buffer.from(revealed).toString("hex")}`] });
+  // Read the Claimed event from the claim's own receipt: eth_getLogs on the public RPC is rate limited (17 Nov 2026: 429
+  // after the swap had settled).
+  const receipt = await pub.getTransactionReceipt({ hash: claimHash });
+  const claimed = receipt.logs.find((l) => l.topics[0] === CLAIMED_TOPIC && l.topics[1] === lockId);
+  log("done", `Base Claimed event carries the same secret: ${claimed?.data === `0x${Buffer.from(revealed).toString("hex")}`}`);
   console.log("\nPROOF " + JSON.stringify({ secretHash: secretHashHex, lockId, bchContract: contract.tokenAddress, txs: proof }));
 } else {
   log("base claim", "skipped in dry run");

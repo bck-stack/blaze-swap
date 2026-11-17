@@ -67,6 +67,13 @@ const PROOF = {
     ["Lock 0.05 USDC", "0x9d2c64dada3e465ff4c5567e9fc35c88f3a5c9795d46b3fd05b44e3aa071bbe6"],
     ["Claim with the secret", "0x1a3c0b8e98f14e7dda9df90365a04e08deac7217946e4d0b722c1620a71e1d1c"],
   ],
+  // 17 Nov 2026, web/scripts/mainnet-swap.mjs: one swap across both mainnets under one sha256 hash.
+  swap: [
+    ["1. Maker locks 0.05 USDC on Base", "base", "0xd350ad6f7239cc2206a16ae524c6edefab9935caa31b595ea3907358ce7f216b"],
+    ["2. Taker locks 0.00005 BCH on Bitcoin Cash", "bch", "b37aed3b840f683eadfc1f0a2dab9847077df5f833de1baa7a0364e3e023c574"],
+    ["3. Maker claims the BCH, the secret goes on chain", "bch", "452e7b7cedc59ef6bdb891d42d05c9bf0370b30462744df17ac339952a6e73ea"],
+    ["4. Taker claims the USDC with that secret", "base", "0x837b4c5097123f761e2baf34e00b88dd43a47b4265b6f0255dd15b0b7f9e1a0e"],
+  ],
 };
 
 export default function App() {
@@ -1034,8 +1041,19 @@ export default function App() {
         <section className="card proof">
           <h2 className="card-title">
             <span>On mainnet</span>
-            <span className="small-muted">Base 8453</span>
+            <span className="small-muted">Bitcoin Cash + Base 8453</span>
           </h2>
+          <p className="small-muted">One swap settled across both mainnets under the same hash:</p>
+          <ul className="tx-list">
+            {PROOF.swap.map(([label, chain, hash]) => (
+              <li key={hash}>
+                <span>{label}</span>
+                <a className="mono" href={txUrl("mainnet", chain, hash)} target="_blank" rel="noreferrer">
+                  {shortAddr(hash)}
+                </a>
+              </li>
+            ))}
+          </ul>
           <p className="small-muted">
             SwapLock.sol is deployed and source-verified at{" "}
             <a className="mono" href={`https://base.blockscout.com/address/${PROOF.baseContract}`} target="_blank" rel="noreferrer">
