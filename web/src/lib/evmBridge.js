@@ -272,7 +272,8 @@ export async function pollEvmClaimedSecret({
       toBlock: to,
     });
     if (logs.length > 0) {
-      return logs[logs.length - 1].args.secret || null;
+      const last = logs[logs.length - 1];
+      return last.args.secret ? { secret: last.args.secret, txid: last.transactionHash } : null;
     }
     if (from === 0n || from <= minBlock) break;
     to = from - 1n;

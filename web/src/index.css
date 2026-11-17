@@ -380,3 +380,99 @@ select.network-select {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.steps {
+  list-style: none;
+  counter-reset: step;
+  padding: 0;
+  margin: 0.9rem 0 0;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.steps li {
+  counter-increment: step;
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 0.85rem;
+}
+
+.steps li::before {
+  content: counter(step);
+  font-weight: 700;
+  margin-right: 0.5rem;
+  color: var(--muted);
+}
+
+.steps .step-label {
+  flex: 1;
+}
+
+.steps li.current {
+  border-color: var(--emerald);
+}
+
+.steps li.current::before {
+  color: var(--emerald);
+}
+
+.steps li.done {
+  opacity: 0.7;
+}
+
+.steps li.done::before {
+  content: "✓";
+  color: var(--emerald);
+}
+
+.next-box {
+  margin-top: 0.85rem;
+  padding: 0.75rem 0.85rem;
+  border-radius: 10px;
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  font-size: 0.88rem;
+}
+
+.next-box p {
+  margin: 0 0 0.6rem;
+}
+
+.next-box p:last-child {
+  margin-bottom: 0;
+}
+
+.next-box.warn {
+  background: rgba(245, 158, 11, 0.08);
+  border-color: rgba(245, 158, 11, 0.35);
+}
+
+.tx-list {
+  list-style: none;
+  padding: 0;
+  margin: 0.75rem 0 0;
+  display: grid;
+  gap: 0.3rem;
+  font-size: 0.82rem;
+}
+
+.tx-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.offer-card {
+  margin-bottom: 1.25rem;
+  border-color: var(--emerald);
+}
+
+.proof {
+  margin-top: 1.25rem;
+}

@@ -94,13 +94,32 @@ export async function fetchContractLockState({
     timeout,
   });
   const balances = await fetchAddressBalances(tokenAddress, networkId);
+  const history = await fetchScriptHistory(address, networkId);
   return {
     address,
     tokenAddress,
     contract,
     ...balances,
     funded: balances.utxoCount > 0,
+    // Seen on chain but nothing left: the lock was claimed or refunded.
+    spent: balances.utxoCount === 0 && history.length > 0,
+    history,
   };
+}
+
+async function contractScriptHash(contractAddress) {
+  const decoded = cashAddressToLockingBytecode(contractAddress);
+  if (typeof decoded === "string") return null;
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", decoded.bytecode);
+  return bytesToHex(new Uint8Array(digest).reverse());
+}
+
+export async function fetchScriptHistory(contractAddress, networkId = "mainnet") {
+  const scriptHash = await contractScriptHash(contractAddress);
+  if (!scriptHash) return [];
+  const provider = getElectrumProvider(networkId);
+  const history = await provider.performRequest("blockchain.scripthash.get_history", scriptHash);
+  return Array.isArray(history) ? history : [];
 }
 
 export async function fundBchSwapLockWithWallet({
@@ -375,30 +394,22 @@ export async function pollBchClaimedSecret({
   networkId = "mainnet",
   contractAddress,
   secretHash,
+  history,
 }) {
   if (!contractAddress || !secretHash) return null;
-  const decoded = cashAddressToLockingBytecode(contractAddress);
-  if (typeof decoded === "string") return null;
-
-  const digest = await globalThis.crypto.subtle.digest("SHA-256", decoded.bytecode);
-  const scriptHash = bytesToHex(new Uint8Array(digest).reverse());
+  const items = history || (await fetchScriptHistory(contractAddress, networkId));
+  if (items.length === 0) return null;
 
   const provider = getElectrumProvider(networkId);
-  const history = await provider.performRequest(
-    "blockchain.scripthash.get_history",
-    scriptHash
-  );
-  if (!Array.isArray(history) || history.length === 0) return null;
-
   const targetHash = normalizeHex32(secretHash);
-  for (const item of history) {
+  for (const item of items) {
     if (!item?.tx_hash) continue;
     const rawHex = await provider.getRawTransaction(item.tx_hash);
     const tx = decodeTransactionUnsafe(hexToBytes(rawHex));
     for (const input of tx.inputs) {
       for (const push of extractPushDatas(input.unlockingBytecode)) {
         if (push.length === 32 && (await sha256Hex(push)) === targetHash) {
-          return `0x${bytesToHex(push)}`;
+          return { secret: `0x${bytesToHex(push)}`, txid: item.tx_hash };
         }
       }
     }

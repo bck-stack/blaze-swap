@@ -6,6 +6,10 @@ import {
   computeEvmLockId,
   computePairedTimeouts,
   decodeCashAddressPkh,
+  decodeOffer,
+  encodeOffer,
+  swapLegs,
+  swapSteps,
   derivePkhAndAddressesFromPubkey,
   formatTokenUnits,
   generateSecretPair,
@@ -39,6 +43,31 @@ function shortAddr(addr) {
   if (addr.length <= 16) return addr;
   return `${addr.slice(0, 10)}…${addr.slice(-6)}`;
 }
+
+function txUrl(networkId, chain, hash) {
+  const cfg = NETWORK_CONFIG[networkId] || NETWORK_CONFIG.mainnet;
+  return chain === "bch" ? `${cfg.bchExplorerTx}${hash}` : `${cfg.evmExplorerTx}${hash}`;
+}
+
+function readOfferFromHash() {
+  const m = globalThis.location?.hash?.match(/^#offer=([A-Za-z0-9_-]+)$/);
+  if (!m) return { offer: null, error: "" };
+  try {
+    return { offer: decodeOffer(m[1]), error: "" };
+  } catch (err) {
+    return { offer: null, error: err.message };
+  }
+}
+
+const PROOF = {
+  baseContract: "0xf66642c35cf4a36fcd7d3bcf87422791280f8901",
+  baseTxs: [
+    ["Deploy SwapLock.sol", "0xd3e8ba9cdf673271ec88cb5b85ccefcd5d57afdedcaa5ac5b61019a8391dd46b"],
+    ["Approve USDC", "0xa62e829eb4127dacf65c0b01a20d0b56a95556574d3628028187f42e52f368f4"],
+    ["Lock 0.05 USDC", "0x9d2c64dada3e465ff4c5567e9fc35c88f3a5c9795d46b3fd05b44e3aa071bbe6"],
+    ["Claim with the secret", "0x1a3c0b8e98f14e7dda9df90365a04e08deac7217946e4d0b722c1620a71e1d1c"],
+  ],
+};
 
 export default function App() {
   const [networkId, setNetworkId] = useState("mainnet");
@@ -89,6 +118,9 @@ export default function App() {
   const [secretHex, setSecretHex] = useState("");
   const [secretHash, setSecretHash] = useState("");
 
+  const [incoming, setIncoming] = useState(() => readOfferFromHash());
+  const [copied, setCopied] = useState(false);
+  const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000));
   const [swaps, setSwaps] = useState(() => loadSwaps());
   const [selectedSwapId, setSelectedSwapId] = useState(() => loadSwaps()[0]?.id || "");
   const [lockStates, setLockStates] = useState({});
@@ -101,6 +133,62 @@ export default function App() {
   useEffect(() => {
     saveSwaps(swaps);
   }, [swaps]);
+
+  useEffect(() => {
+    const onHash = () => setIncoming(readOfferFromHash());
+    globalThis.addEventListener("hashchange", onHash);
+    const tick = setInterval(() => setNowSec(Math.floor(Date.now() / 1000)), 15000);
+    return () => {
+      globalThis.removeEventListener("hashchange", onHash);
+      clearInterval(tick);
+    };
+  }, []);
+
+  const appendTx = useCallback((swapId, label, chain, hash) => {
+    setSwaps((prev) =>
+      prev.map((s) =>
+        s.id === swapId && !(s.txs || []).some((t) => t.hash === hash)
+          ? { ...s, txs: [...(s.txs || []), { label, chain, hash, at: new Date().toISOString() }] }
+          : s
+      )
+    );
+  }, []);
+
+  const importIncoming = () => {
+    const offer = incoming.offer;
+    if (!offer) return;
+    const existing = swaps.find((s) => s.secretHash === offer.secretHash);
+    if (existing) {
+      setSelectedSwapId(existing.id);
+    } else {
+      const { address, tokenAddress } = deriveSwapLockContract({
+        networkId: offer.networkId,
+        recipientPkh: offer.bchRecipientPkh,
+        refundPkh: offer.bchRefundPkh,
+        secretHash: offer.secretHash,
+        timeout: offer.bchTimeout,
+      });
+      const swap = {
+        ...offer,
+        id: `${Date.now()}-${offer.secretHash.slice(2, 10)}`,
+        createdAt: new Date().toISOString(),
+        role: "taker",
+        secret: "",
+        bchContractAddress: address,
+        bchContractTokenAddress: tokenAddress,
+        txs: [],
+      };
+      setSwaps((prev) => [swap, ...prev]);
+      setSelectedSwapId(swap.id);
+    }
+    setNetworkId(offer.networkId);
+    setIncoming({ offer: null, error: "" });
+    globalThis.history?.replaceState(null, "", globalThis.location.pathname);
+    setStatusMsg({
+      type: "info",
+      text: "Offer imported. The page recomputed both lock addresses from its terms; wait for the maker's lock to show up before you lock yours.",
+    });
+  };
 
   useEffect(() => {
     if (wcState === "connected" && manager) {
@@ -251,6 +339,8 @@ export default function App() {
       });
 
       const newSwap = {
+        role: "maker",
+        txs: [],
         id: `${Date.now()}-${finalHash.slice(2, 10)}`,
         createdAt: new Date().toISOString(),
         networkId,
@@ -278,7 +368,7 @@ export default function App() {
       setSelectedSwapId(newSwap.id);
       setStatusMsg({
         type: "success",
-        text: "Swap contract pair derived. Lock Maker funds first, then Taker funds.",
+        text: "Swap created. Lock your side, then send the share link to the other party.",
       });
     } catch (err) {
       setStatusMsg({ type: "error", text: err.message });
@@ -298,47 +388,65 @@ export default function App() {
         });
         const lockContract =
           swap.evmContractAddr || swapLockAddresses[swap.networkId] || "";
-        let evmState = null;
-        let capturedSecret = null;
-        if (lockContract) {
-          evmState = await fetchEvmLockState({
-            networkId: swap.networkId,
-            swapLockAddress: lockContract,
-            lockId: swap.evmLockId,
-          });
-          if (watcherActive && !swap.secret) {
-            capturedSecret = await pollEvmClaimedSecret({
+        const evmState = lockContract
+          ? await fetchEvmLockState({
+              networkId: swap.networkId,
+              swapLockAddress: lockContract,
+              lockId: swap.evmLockId,
+            })
+          : null;
+
+        // The secret only exists on chain after a claim, so look for it only once a lock has been spent.
+        let captured = null;
+        if (watcherActive && !swap.secret) {
+          if (evmState?.settled) {
+            captured = await pollEvmClaimedSecret({
               networkId: swap.networkId,
               swapLockAddress: lockContract,
               lockId: swap.evmLockId,
             });
+            if (captured) captured.chain = "base";
+          }
+          if (!captured && bchState.spent) {
+            captured = await pollBchClaimedSecret({
+              networkId: swap.networkId,
+              contractAddress: swap.bchContractAddress,
+              secretHash: swap.secretHash,
+              history: bchState.history,
+            });
+            if (captured) captured.chain = "bch";
           }
         }
-        if (watcherActive && !swap.secret && !capturedSecret) {
-          capturedSecret = await pollBchClaimedSecret({
-            networkId: swap.networkId,
-            contractAddress: swap.bchContractAddress,
-            secretHash: swap.secretHash,
-          });
-        }
-        if (capturedSecret) {
+        if (captured) {
           setSwaps((prev) =>
             prev.map((s) =>
-              s.id === swap.id ? { ...s, secret: capturedSecret } : s
+              s.id === swap.id ? { ...s, secret: captured.secret } : s
             )
           );
+          appendTx(swap.id, "Maker's claim (secret revealed)", captured.chain, captured.txid);
           setStatusMsg({
             type: "success",
-            text: "Watcher captured revealed 32-byte secret on-chain!",
+            text: "The maker claimed and the secret is now public on chain. You can claim your side.",
           });
         }
         setLockStates((prev) => ({
           ...prev,
           [swap.id]: {
-            bchFunded: bchState.funded,
-            bchPusd: bchState.pusdAmount.toString(),
-            bchSats: bchState.bchSatoshis.toString(),
-            evmState,
+            bch: {
+              funded: bchState.funded,
+              spent: bchState.spent,
+              amountOk: bchState.pusdAmount >= BigInt(swap.pusdUnits),
+              pusd: bchState.pusdAmount.toString(),
+              sats: bchState.bchSatoshis.toString(),
+            },
+            base: evmState
+              ? {
+                  exists: evmState.exists,
+                  settled: evmState.settled,
+                  amountOk: evmState.exists && evmState.amount >= BigInt(swap.usdcUnits),
+                  amount: evmState.amount.toString(),
+                }
+              : null,
             checkedAt: new Date().toLocaleTimeString(),
           },
         }));
@@ -346,7 +454,7 @@ export default function App() {
         // Ignore transient RPC polling errors
       }
     },
-    [swapLockAddresses, watcherActive]
+    [swapLockAddresses, watcherActive, appendTx]
   );
 
   useEffect(() => {
@@ -367,6 +475,124 @@ export default function App() {
       setStatusMsg({ type: "error", text: err.message || "Transaction failed" });
     } finally {
       setBusyAction("");
+    }
+  };
+
+  const sameEvm = (a, b) => !!a && !!b && a.toLowerCase() === b.toLowerCase();
+
+  const lockSide = async (swap, chain) => {
+    if (chain === "bch") {
+      if (!manager || !bchAccount) throw new Error("Connect your BCH wallet with WizardConnect first.");
+      if (bchAccount.pkhHex !== swap.bchRefundPkh) {
+        throw new Error("The connected BCH wallet is not the one named in this swap as the sender.");
+      }
+      const { txid } = await fundBchSwapLockWithWallet({
+        networkId: swap.networkId,
+        manager,
+        senderAddress: bchAccount.cashAddress,
+        senderTokenAddress: bchAccount.tokenAddress,
+        contractTokenAddress: swap.bchContractTokenAddress,
+        pusdAmount: BigInt(swap.pusdUnits),
+      });
+      appendTx(swap.id, `Lock ${NETWORK_CONFIG[swap.networkId].pusdSymbol}`, "bch", txid);
+      return;
+    }
+    if (!evmAddress) throw new Error("Connect your Base wallet first.");
+    if (!sameEvm(evmAddress, swap.evmSenderAddr)) {
+      throw new Error("The connected Base wallet is not the one named in this swap as the sender.");
+    }
+    const lockAddr = swap.evmContractAddr || evmContractAddr;
+    if (balances.usdcAllowance < BigInt(swap.usdcUnits)) {
+      const { hash } = await approveEvmUsdc({
+        networkId: swap.networkId,
+        account: evmAddress,
+        swapLockAddress: lockAddr,
+        amount: BigInt(swap.usdcUnits),
+      });
+      appendTx(swap.id, "Approve USDC", "base", hash);
+    }
+    const { hash } = await lockEvmSwap({
+      networkId: swap.networkId,
+      account: evmAddress,
+      swapLockAddress: lockAddr,
+      recipient: swap.evmRecipientAddr,
+      amount: BigInt(swap.usdcUnits),
+      secretHash: swap.secretHash,
+      timeout: swap.evmTimeout,
+    });
+    appendTx(swap.id, "Lock USDC", "base", hash);
+  };
+
+  const claimSide = async (swap, chain) => {
+    if (!swap.secret) throw new Error("The secret is not known yet.");
+    if (chain === "bch") {
+      if (!manager || !bchAccount) throw new Error("Connect your BCH wallet with WizardConnect first.");
+      if (bchAccount.pkhHex !== swap.bchRecipientPkh) {
+        throw new Error("The connected BCH wallet is not the recipient of this lock.");
+      }
+      const { txid } = await claimBchSwapLock({
+        networkId: swap.networkId,
+        manager,
+        recipientPkh: swap.bchRecipientPkh,
+        refundPkh: swap.bchRefundPkh,
+        secretHash: swap.secretHash,
+        timeout: swap.bchTimeout,
+        secretHex: swap.secret,
+        recipientTokenAddress: bchAccount.tokenAddress,
+      });
+      appendTx(swap.id, `Claim ${NETWORK_CONFIG[swap.networkId].pusdSymbol}`, "bch", txid);
+      return;
+    }
+    if (!evmAddress) throw new Error("Connect a Base wallet first (any wallet can submit; the USDC always goes to the recipient).");
+    const { hash } = await claimEvmSwap({
+      networkId: swap.networkId,
+      account: evmAddress,
+      swapLockAddress: swap.evmContractAddr || evmContractAddr,
+      lockId: swap.evmLockId,
+      secretHex: swap.secret,
+    });
+    appendTx(swap.id, "Claim USDC", "base", hash);
+  };
+
+  const refundSide = async (swap, chain) => {
+    if (chain === "bch") {
+      if (!manager || !bchAccount) throw new Error("Connect your BCH wallet with WizardConnect first.");
+      if (bchAccount.pkhHex !== swap.bchRefundPkh) {
+        throw new Error("The connected BCH wallet is not the refund address of this lock.");
+      }
+      const { txid } = await refundBchSwapLock({
+        networkId: swap.networkId,
+        manager,
+        recipientPkh: swap.bchRecipientPkh,
+        refundPkh: swap.bchRefundPkh,
+        secretHash: swap.secretHash,
+        timeout: swap.bchTimeout,
+        refundTokenAddress: bchAccount.tokenAddress,
+      });
+      appendTx(swap.id, "Refund on BCH", "bch", txid);
+      return;
+    }
+    if (!evmAddress) throw new Error("Connect a Base wallet first.");
+    const { hash } = await refundEvmSwap({
+      networkId: swap.networkId,
+      account: evmAddress,
+      swapLockAddress: swap.evmContractAddr || evmContractAddr,
+      lockId: swap.evmLockId,
+    });
+    appendTx(swap.id, "Refund on Base", "base", hash);
+  };
+
+  const shareLink = activeSwap
+    ? `${globalThis.location.origin}${globalThis.location.pathname}#offer=${encodeOffer(activeSwap)}`
+    : "";
+
+  const copyShareLink = async () => {
+    try {
+      await globalThis.navigator.clipboard.writeText(shareLink);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setStatusMsg({ type: "error", text: "Copy failed; select the link and copy it by hand." });
     }
   };
 
@@ -592,6 +818,34 @@ export default function App() {
           </div>
         )}
 
+        {incoming.error && (
+          <div className="alert alert-error">Offer link rejected: {incoming.error}</div>
+        )}
+        {incoming.offer && (
+          <section className="card offer-card">
+            <h2 className="card-title">
+              <span>Swap offer for you</span>
+              <span className="small-muted">{NETWORK_CONFIG[incoming.offer.networkId].label}</span>
+            </h2>
+            <p>
+              {incoming.offer.direction === "BASE_TO_BCH"
+                ? `The maker locks ${incoming.offer.displayAmount} USDC on Base for you. You lock ${incoming.offer.displayAmount} ${NETWORK_CONFIG[incoming.offer.networkId].pusdSymbol} on BCH for them.`
+                : `The maker locks ${incoming.offer.displayAmount} ${NETWORK_CONFIG[incoming.offer.networkId].pusdSymbol} on BCH for you. You lock ${incoming.offer.displayAmount} USDC on Base for them.`}
+            </p>
+            <div className="small-muted mono">
+              <div>Your BCH address: {incoming.offer.direction === "BASE_TO_BCH" ? incoming.offer.bchRefundAddr : incoming.offer.bchRecipientAddr}</div>
+              <div>Your Base address: {incoming.offer.direction === "BASE_TO_BCH" ? incoming.offer.evmRecipientAddr : incoming.offer.evmSenderAddr}</div>
+              <div>Your lock refunds after: {new Date((incoming.offer.direction === "BASE_TO_BCH" ? incoming.offer.bchTimeout : incoming.offer.evmTimeout) * 1000).toLocaleString()}</div>
+            </div>
+            <p className="small-muted">
+              Nothing is locked yet. Import the offer, connect the two wallets above, and lock only after the page shows the maker&apos;s lock on chain.
+            </p>
+            <button type="button" className="btn btn-primary" onClick={importIncoming}>
+              Import offer as taker
+            </button>
+          </section>
+        )}
+
         <div className="grid-main">
           <section className="card">
             <h2 className="card-title">
@@ -762,214 +1016,43 @@ export default function App() {
           </section>
         </div>
 
-        <section className="card" style={{ marginTop: "1.25rem" }}>
+        <SwapSession
+          swap={activeSwap}
+          swaps={swaps}
+          onSelect={setSelectedSwapId}
+          lockInfo={activeLockInfo}
+          nowSec={nowSec}
+          busyAction={busyAction}
+          shareLink={shareLink}
+          copied={copied}
+          onCopy={copyShareLink}
+          onLock={(chain) => runSwapAction(`lock-${chain}`, () => lockSide(activeSwap, chain))}
+          onClaim={(chain) => runSwapAction(`claim-${chain}`, () => claimSide(activeSwap, chain))}
+          onRefund={(chain) => runSwapAction(`refund-${chain}`, () => refundSide(activeSwap, chain))}
+        />
+
+        <section className="card proof">
           <h2 className="card-title">
-            <span>2. Execute & Settle Active Swap</span>
-            <span className="small-muted">{swaps.length} saved session(s)</span>
+            <span>On mainnet</span>
+            <span className="small-muted">Base 8453</span>
           </h2>
-
-          {!activeSwap ? (
-            <p className="small-muted">
-              Create an atomic swap above to inspect live BCH P2SH32 & Base lock states.
-            </p>
-          ) : (
-            <div className="swap-session highlight">
-              <div className="row-2">
-                <div>
-                  <div className="small-muted">
-                    Direction: <strong>{activeSwap.direction}</strong> ·{" "}
-                    <strong>{activeSwap.displayAmount} USD</strong>
-                  </div>
-                  <div className="small-muted mono" style={{ marginTop: "0.25rem" }}>
-                    Hash: {shortAddr(activeSwap.secretHash)}
-                  </div>
-                  <div className="small-muted mono">
-                    BCH Lock (z...): {activeSwap.bchContractTokenAddress}
-                  </div>
-                  <div className="small-muted mono">
-                    Base Lock ID: {shortAddr(activeSwap.evmLockId)}
-                  </div>
-                </div>
-                <div>
-                  <div className="small-muted">
-                    <strong>BCH Contract:</strong>{" "}
-                    {activeLockInfo?.bchFunded
-                      ? `Funded (${formatTokenUnits(
-                          activeLockInfo.bchPusd,
-                          cfg.pusdDecimals
-                        )} ${cfg.pusdSymbol}, ${activeLockInfo.bchSats} sats)`
-                      : "Unfunded / Spent"}
-                  </div>
-                  <div className="small-muted">
-                    <strong>Base Contract:</strong>{" "}
-                    {activeLockInfo?.evmState?.exists
-                      ? activeLockInfo.evmState.settled
-                        ? "Settled"
-                        : `Locked (${formatTokenUnits(
-                            activeLockInfo.evmState.amount,
-                            cfg.evmUsdcDecimals
-                          )} USDC)`
-                      : evmContractAddr
-                      ? "Unfunded"
-                      : "Set Base SwapLock.sol in Config"}
-                  </div>
-                  <div className="small-muted">
-                    <strong>Secret Captured:</strong>{" "}
-                    {activeSwap.secret ? (
-                      <span className="mono">{shortAddr(activeSwap.secret)}</span>
-                    ) : (
-                      "Waiting for Claimed event..."
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              <div className="actions-row">
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  disabled={!!busyAction || !manager || !bchAccount}
-                  onClick={() =>
-                    runSwapAction("bch-lock", async () => {
-                      const { txid } = await fundBchSwapLockWithWallet({
-                        networkId: activeSwap.networkId,
-                        manager,
-                        senderAddress: bchAccount.cashAddress,
-                        senderTokenAddress: bchAccount.tokenAddress,
-                        contractTokenAddress: activeSwap.bchContractTokenAddress,
-                        pusdAmount: BigInt(activeSwap.pusdUnits),
-                      });
-                      setStatusMsg({ type: "success", text: `BCH Lock tx: ${txid}` });
-                    })
-                  }
-                >
-                  Lock {cfg.pusdSymbol} (WizardConnect)
-                </button>
-
-                <button
-                  type="button"
-                  className="btn btn-base"
-                  disabled={!!busyAction || !evmAddress || !evmContractAddr}
-                  onClick={() =>
-                    runSwapAction("evm-lock", async () => {
-                      if (balances.usdcAllowance < BigInt(activeSwap.usdcUnits)) {
-                        await approveEvmUsdc({
-                          networkId: activeSwap.networkId,
-                          account: evmAddress,
-                          swapLockAddress: evmContractAddr,
-                          amount: BigInt(activeSwap.usdcUnits),
-                        });
-                      }
-                      const { hash } = await lockEvmSwap({
-                        networkId: activeSwap.networkId,
-                        account: evmAddress,
-                        swapLockAddress: evmContractAddr,
-                        recipient: activeSwap.evmRecipientAddr,
-                        amount: BigInt(activeSwap.usdcUnits),
-                        secretHash: activeSwap.secretHash,
-                        timeout: activeSwap.evmTimeout,
-                      });
-                      setStatusMsg({ type: "success", text: `Base Lock tx: ${hash}` });
-                    })
-                  }
-                >
-                  Approve & Lock Base USDC
-                </button>
-
-                <button
-                  type="button"
-                  className="btn"
-                  disabled={!!busyAction || !manager || !bchAccount || !activeSwap.secret}
-                  onClick={() =>
-                    runSwapAction("bch-claim", async () => {
-                      if (bchAccount.pkhHex !== activeSwap.bchRecipientPkh) {
-                        throw new Error("Connected BCH wallet is not the swap recipient.");
-                      }
-                      const { txid } = await claimBchSwapLock({
-                        networkId: activeSwap.networkId,
-                        manager,
-                        recipientPkh: activeSwap.bchRecipientPkh,
-                        refundPkh: activeSwap.bchRefundPkh,
-                        secretHash: activeSwap.secretHash,
-                        timeout: activeSwap.bchTimeout,
-                        secretHex: activeSwap.secret,
-                        recipientTokenAddress: bchAccount.tokenAddress,
-                      });
-                      setStatusMsg({ type: "success", text: `BCH Claim tx: ${txid}` });
-                    })
-                  }
-                >
-                  Claim BCH {cfg.pusdSymbol}
-                </button>
-
-                <button
-                  type="button"
-                  className="btn"
-                  disabled={
-                    !!busyAction || !evmAddress || !evmContractAddr || !activeSwap.secret
-                  }
-                  onClick={() =>
-                    runSwapAction("evm-claim", async () => {
-                      const { hash } = await claimEvmSwap({
-                        networkId: activeSwap.networkId,
-                        account: evmAddress,
-                        swapLockAddress: evmContractAddr,
-                        lockId: activeSwap.evmLockId,
-                        secretHex: activeSwap.secret,
-                      });
-                      setStatusMsg({ type: "success", text: `Base Claim tx: ${hash}` });
-                    })
-                  }
-                >
-                  Claim Base USDC
-                </button>
-
-                <button
-                  type="button"
-                  className="btn btn-ghost"
-                  disabled={!!busyAction || !manager || !bchAccount}
-                  onClick={() =>
-                    runSwapAction("bch-refund", async () => {
-                      if (bchAccount.pkhHex !== activeSwap.bchRefundPkh) {
-                        throw new Error("Connected BCH wallet is not the refund address.");
-                      }
-                      const { txid } = await refundBchSwapLock({
-                        networkId: activeSwap.networkId,
-                        manager,
-                        recipientPkh: activeSwap.bchRecipientPkh,
-                        refundPkh: activeSwap.bchRefundPkh,
-                        secretHash: activeSwap.secretHash,
-                        timeout: activeSwap.bchTimeout,
-                        refundTokenAddress: bchAccount.tokenAddress,
-                      });
-                      setStatusMsg({ type: "success", text: `BCH Refund tx: ${txid}` });
-                    })
-                  }
-                >
-                  Refund BCH
-                </button>
-
-                <button
-                  type="button"
-                  className="btn btn-ghost"
-                  disabled={!!busyAction || !evmAddress || !evmContractAddr}
-                  onClick={() =>
-                    runSwapAction("evm-refund", async () => {
-                      const { hash } = await refundEvmSwap({
-                        networkId: activeSwap.networkId,
-                        account: evmAddress,
-                        swapLockAddress: evmContractAddr,
-                        lockId: activeSwap.evmLockId,
-                      });
-                      setStatusMsg({ type: "success", text: `Base Refund tx: ${hash}` });
-                    })
-                  }
-                >
-                  Refund Base
-                </button>
-              </div>
-            </div>
-          )}
+          <p className="small-muted">
+            SwapLock.sol is deployed and source-verified at{" "}
+            <a className="mono" href={`https://base.blockscout.com/address/${PROOF.baseContract}`} target="_blank" rel="noreferrer">
+              {shortAddr(PROOF.baseContract)}
+            </a>
+            . A real 0.05 USDC lock was claimed with its secret:
+          </p>
+          <ul className="tx-list">
+            {PROOF.baseTxs.map(([label, hash]) => (
+              <li key={hash}>
+                <span>{label}</span>
+                <a className="mono" href={txUrl("mainnet", "base", hash)} target="_blank" rel="noreferrer">
+                  {shortAddr(hash)}
+                </a>
+              </li>
+            ))}
+          </ul>
         </section>
       </main>
 
@@ -982,5 +1065,179 @@ export default function App() {
         />
       )}
     </>
+  );
+}
+
+const CHAIN_NAME = { bch: "BCH", base: "Base" };
+
+function SwapSession({
+  swap,
+  swaps,
+  onSelect,
+  lockInfo,
+  nowSec,
+  busyAction,
+  shareLink,
+  copied,
+  onCopy,
+  onLock,
+  onClaim,
+  onRefund,
+}) {
+  if (!swap) {
+    return (
+      <section className="card" style={{ marginTop: "1.25rem" }}>
+        <h2 className="card-title">2. Settle the swap</h2>
+        <p className="small-muted">
+          Create a swap above, or open a share link from the other party, to follow both locks live.
+        </p>
+      </section>
+    );
+  }
+  const cfg = NETWORK_CONFIG[swap.networkId] || NETWORK_CONFIG.mainnet;
+  const role = swap.role || "maker";
+  const { makerChain, takerChain } = swapLegs(swap.direction);
+  const lock = { bch: lockInfo?.bch, base: lockInfo?.base };
+  const flow = swapSteps({
+    role,
+    direction: swap.direction,
+    lock,
+    hasSecret: !!swap.secret,
+    nowSec,
+    bchTimeout: swap.bchTimeout,
+    evmTimeout: swap.evmTimeout,
+  });
+  const myLockChain = role === "maker" ? makerChain : takerChain;
+  const myClaimChain = role === "maker" ? takerChain : makerChain;
+  const timeoutOf = (chain) => (chain === "bch" ? swap.bchTimeout : swap.evmTimeout);
+  const busy = !!busyAction;
+  const fmtTime = (t) => new Date(t * 1000).toLocaleString();
+  const sideText = (chain) => {
+    if (chain === "bch") {
+      const b = lock.bch;
+      if (!b) return "checking…";
+      if (b.funded) {
+        const amt = `${formatTokenUnits(b.pusd, cfg.pusdDecimals)} ${cfg.pusdSymbol}`;
+        return b.amountOk ? `locked: ${amt}` : `locked with the WRONG amount: ${amt}`;
+      }
+      return b.spent ? "spent (claimed or refunded)" : "empty";
+    }
+    const e = lock.base;
+    if (!e) return swap.evmContractAddr ? "checking…" : "no Base contract set";
+    if (!e.exists) return "empty";
+    if (e.settled) return "spent (claimed or refunded)";
+    return `locked: ${formatTokenUnits(e.amount, cfg.evmUsdcDecimals)} USDC`;
+  };
+
+  let nextBox;
+  if (flow.next === "maker-lock" || flow.next === "taker-lock") {
+    nextBox = (
+      <>
+        <p>
+          {flow.next === "taker-lock"
+            ? `The maker's lock on ${CHAIN_NAME[makerChain]} is on chain with the right amount. Lock your side on ${CHAIN_NAME[takerChain]}; it comes back to you after ${fmtTime(timeoutOf(takerChain))} if the maker never claims.`
+            : `Lock your side on ${CHAIN_NAME[makerChain]}. It comes back to you after ${fmtTime(timeoutOf(makerChain))} if the swap stalls. Then send the share link below.`}
+        </p>
+        <button type="button" className="btn btn-primary" disabled={busy} onClick={() => onLock(myLockChain)}>
+          {myLockChain === "bch" ? `Lock ${cfg.pusdSymbol} on BCH` : "Approve & lock USDC on Base"}
+        </button>
+      </>
+    );
+  } else if (flow.next === "maker-claim" || flow.next === "taker-claim") {
+    nextBox = (
+      <>
+        <p>
+          {flow.next === "maker-claim"
+            ? `The taker locked on ${CHAIN_NAME[takerChain]}. Claim it now. Your claim puts the secret on chain, and that is what lets the taker claim your side.`
+            : `The secret is public. Claim your side on ${CHAIN_NAME[makerChain]} before ${fmtTime(timeoutOf(makerChain))}.`}
+        </p>
+        <button type="button" className="btn btn-primary" disabled={busy || !swap.secret} onClick={() => onClaim(myClaimChain)}>
+          {myClaimChain === "bch" ? `Claim ${cfg.pusdSymbol} on BCH` : "Claim USDC on Base"}
+        </button>
+      </>
+    );
+  } else if (flow.next === "too-late") {
+    nextBox = <p>Less than an hour is left on the taker&apos;s lock window. Do not lock; ask the maker for a fresh offer.</p>;
+  } else if (flow.next === "wait") {
+    nextBox = <p>Waiting for the {role === "maker" ? "taker" : "maker"}. This page checks both chains every 6 seconds.</p>;
+  } else {
+    nextBox = <p>Both sides settled. The swap is complete.</p>;
+  }
+
+  return (
+    <section className="card" style={{ marginTop: "1.25rem" }}>
+      <h2 className="card-title">
+        <span>2. Settle the swap</span>
+        {swaps.length > 1 ? (
+          <select className="network-select" value={swap.id} onChange={(e) => onSelect(e.target.value)} aria-label="Saved swaps">
+            {swaps.map((s) => (
+              <option key={s.id} value={s.id}>
+                {(s.role || "maker") === "maker" ? "Maker" : "Taker"} · {s.displayAmount} · {new Date(s.createdAt).toLocaleString()}
+              </option>
+            ))}
+          </select>
+        ) : null}
+      </h2>
+
+      <div className="swap-session highlight">
+        <div className="small-muted">
+          You are the <strong>{role}</strong> · {swap.displayAmount} {cfg.pusdSymbol} ⇄ {swap.displayAmount} USDC · {cfg.label}
+        </div>
+        <div className="small-muted mono" style={{ marginTop: "0.25rem" }}>
+          Hash {shortAddr(swap.secretHash)} · BCH lock {shortAddr(swap.bchContractTokenAddress)} · Base lock id {shortAddr(swap.evmLockId)}
+        </div>
+
+        <ol className="steps">
+          {flow.steps.map((st) => (
+            <li key={st.key} className={st.done ? "done" : st.key === flow.current ? "current" : ""}>
+              <span className="step-label">{st.label}</span>
+              <span className="small-muted">
+                {CHAIN_NAME[st.chain]}
+                {st.key.endsWith("lock") ? ` · ${sideText(st.chain)}` : ""}
+              </span>
+            </li>
+          ))}
+        </ol>
+
+        <div className="next-box">{nextBox}</div>
+
+        {flow.canRefund ? (
+          <div className="next-box warn">
+            <p>Your lock expired without a claim. Take your coins back.</p>
+            <button type="button" className="btn" disabled={busy} onClick={() => onRefund(myLockChain)}>
+              Refund on {CHAIN_NAME[myLockChain]}
+            </button>
+          </div>
+        ) : null}
+
+        {role === "maker" ? (
+          <div className="field" style={{ marginTop: "0.75rem" }}>
+            <label>
+              <span>Share link for the taker (no secret inside; their page rebuilds both locks from it)</span>
+              <button type="button" className="btn btn-sm" onClick={onCopy}>
+                {copied ? "Copied" : "Copy"}
+              </button>
+            </label>
+            <input className="mono" readOnly value={shareLink} onFocus={(e) => e.target.select()} />
+          </div>
+        ) : null}
+
+        {(swap.txs || []).length > 0 ? (
+          <ul className="tx-list">
+            {swap.txs.map((t) => (
+              <li key={t.hash}>
+                <span>
+                  {t.label} ({CHAIN_NAME[t.chain]})
+                </span>
+                <a className="mono" href={txUrl(swap.networkId, t.chain, t.hash)} target="_blank" rel="noreferrer">
+                  {shortAddr(t.hash)}
+                </a>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        {lockInfo?.checkedAt ? <div className="small-muted">Last checked {lockInfo.checkedAt}</div> : null}
+      </div>
+    </section>
   );
 }
