@@ -63,8 +63,17 @@ wallets, so no value changed hands; what it shows is the two contracts settling 
 | Maker claims the BCH; the secret is now in that transaction's input | Bitcoin Cash | [452e7b7c…73ea](https://blockchair.com/bitcoin-cash/transaction/452e7b7cedc59ef6bdb891d42d05c9bf0370b30462744df17ac339952a6e73ea) |
 | The secret is read back from the BCH claim and claims the USDC | Base | [0x837b4c50…1a0e](https://basescan.org/tx/0x837b4c5097123f761e2baf34e00b88dd43a47b4265b6f0255dd15b0b7f9e1a0e) |
 
-The Base `Claimed` event carries `0x33bff9a2…`, the same 32 bytes the BCH claim revealed. The script runs the same flow
-with PUSD instead of BCH (`--asset pusd`) once the wallet holds PUSD.
+The Base `Claimed` event carries `0x33bff9a2…`, the same 32 bytes the BCH claim revealed. The same flow with PUSD (ParyonUSD, the BCH stablecoin) on the Bitcoin Cash side, 18 Nov 2026 (`--asset pusd`):
+
+| Step | Chain | Transaction |
+|---|---|---|
+| Maker approves and locks 0.05 USDC (hash `0x4412b2f3…6402`) | Base | [0x4c463a3a…b943](https://basescan.org/tx/0x4c463a3afdcb29c782542c9a4d036bc03b6edb3f13af8e2607d036facacdb943), [0xd19620f7…a549](https://basescan.org/tx/0xd19620f7f2766ceba2cc153c2eec279ae4acad125d153620f209ea05fc94a549) |
+| Taker checks the Base lock, then locks 0.05 PUSD under the same hash | Bitcoin Cash | [1303e2e8…652e](https://blockchair.com/bitcoin-cash/transaction/1303e2e848abfc1e5d2c888691308f3dbf4e70e66237b6e7826bfa2340a5652e) |
+| Maker claims the PUSD; the secret is now in that transaction's input | Bitcoin Cash | [7e5c671d…6b6c](https://blockchair.com/bitcoin-cash/transaction/7e5c671d8034865accbb75533be5ad53e95e19e6ef755b9629506e387c355b6c) |
+| The secret is read back from the BCH claim and claims the USDC | Base | [0x7bebee51…7ac7](https://basescan.org/tx/0x7bebee51e3c1cf08a21e0618b667fc39ab0b66f88adee0e4421d932d72867ac7) |
+
+The PUSD lock output carries 5 units of category `2469acc5…2544` (2 decimals, 0.05 PUSD) next to the token change; the
+claim returns them to the maker's token address.
 
 ## Built during the build week (14 to 22 Nov)
 

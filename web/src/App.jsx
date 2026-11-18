@@ -74,6 +74,13 @@ const PROOF = {
     ["3. Maker claims the BCH, the secret goes on chain", "bch", "452e7b7cedc59ef6bdb891d42d05c9bf0370b30462744df17ac339952a6e73ea"],
     ["4. Taker claims the USDC with that secret", "base", "0x837b4c5097123f761e2baf34e00b88dd43a47b4265b6f0255dd15b0b7f9e1a0e"],
   ],
+  // 18 Nov 2026, the same script with --asset pusd: PUSD (ParyonUSD) on the Bitcoin Cash side.
+  pusdSwap: [
+    ["1. Maker locks 0.05 USDC on Base", "base", "0xd19620f7f2766ceba2cc153c2eec279ae4acad125d153620f209ea05fc94a549"],
+    ["2. Taker locks 0.05 PUSD on Bitcoin Cash", "bch", "1303e2e848abfc1e5d2c888691308f3dbf4e70e66237b6e7826bfa2340a5652e"],
+    ["3. Maker claims the PUSD, the secret goes on chain", "bch", "7e5c671d8034865accbb75533be5ad53e95e19e6ef755b9629506e387c355b6c"],
+    ["4. Taker claims the USDC with that secret", "base", "0x7bebee51e3c1cf08a21e0618b667fc39ab0b66f88adee0e4421d932d72867ac7"],
+  ],
 };
 
 export default function App() {
@@ -1046,6 +1053,17 @@ export default function App() {
           <p className="small-muted">One swap settled across both mainnets under the same hash:</p>
           <ul className="tx-list">
             {PROOF.swap.map(([label, chain, hash]) => (
+              <li key={hash}>
+                <span>{label}</span>
+                <a className="mono" href={txUrl("mainnet", chain, hash)} target="_blank" rel="noreferrer">
+                  {shortAddr(hash)}
+                </a>
+              </li>
+            ))}
+          </ul>
+          <p className="small-muted">The same with PUSD, the BCH stablecoin, on the Bitcoin Cash side:</p>
+          <ul className="tx-list">
+            {PROOF.pusdSwap.map(([label, chain, hash]) => (
               <li key={hash}>
                 <span>{label}</span>
                 <a className="mono" href={txUrl("mainnet", chain, hash)} target="_blank" rel="noreferrer">
