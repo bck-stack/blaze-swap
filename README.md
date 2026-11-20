@@ -74,10 +74,11 @@ settle. An agent with a BCH wallet can swap a few cents and pay for an API call 
 
 ## What is on mainnet
 
-Swaps through the desk (user side played by `bch/scripts/desk-smoke.mjs`):
+Swaps through the desk. The first row is a person using the live page with Paytaca over WizardConnect (one signature on the phone); the other two were played by `bch/scripts/desk-smoke.mjs`:
 
 | Pay | Receive | User lock (BCH) | Desk lock (Base) | USDC to user (Base) | Desk claim (BCH) | Time |
 |---|---|---|---|---|---|---|
+| 0.000267 BCH (Paytaca) | 0.049999 USDC | [b63271ce…bab8](https://blockchair.com/bitcoin-cash/transaction/b63271ce894c8f8693f30f895a11a9f39be6ca74ed15af2218784945cc04bab8) | [0xc4889ac0…824a](https://basescan.org/tx/0xc4889ac06b0085c066c672dd5682f1cb7098c2d22a0fa75d1a7a3e2801ba824a) | [0x57cc468c…cb6d](https://basescan.org/tx/0x57cc468c31a26bbf8ce82dde930dd6fc789c95b26a18dde3a312fbc2ca5ccb6d) | [8942dc8e…4559](https://blockchair.com/bitcoin-cash/transaction/8942dc8ed18609b092f7f61c2a54dcce4ea17f227e86485ab8c0d2897b934559) | 10.2 s |
 | 0.05 PUSD | 0.04975 USDC | [694071db…68de](https://blockchair.com/bitcoin-cash/transaction/694071db72717b08952b1f75de7eaa43a64b7f5636b9af0870c3e6130c4568de) | [0x66d3787f…441b](https://basescan.org/tx/0x66d3787fc52c75c4f4ff1ef554aee6b38348697d6204231abe865aac46be441b) | [0x103aef62…5c9d](https://basescan.org/tx/0x103aef6217c926251eb0490f0783dedc59d5cad379eede509699f4ed92365c9d) | [2a88a173…ef17](https://blockchair.com/bitcoin-cash/transaction/2a88a1738c998f422cc7110647928e22b1c2ccf0e53363e6fa983dd02474ef17) | 11 s |
 | 0.0003 BCH | 0.056202 USDC | [1893db19…1dd4](https://blockchair.com/bitcoin-cash/transaction/1893db199be795c41a55c0152ef3685bc5a2f9c1a5107cf3ba0d843a363f1dd4) | [0x66968799…72ac](https://basescan.org/tx/0x66968799b7e478210406cf50f50976b4928c6b4830c59dee600bcafbfc3972ac) | [0xd1898453…a134](https://basescan.org/tx/0xd1898453d6ef92e10bf1a7a4f0ec3fea2dd64e28899bbc41e51e22c8f9a2a134) | [d6411e08…d5bd](https://blockchair.com/bitcoin-cash/transaction/d6411e08dc9a41d58f2c0c2e77375476e949d12ea827e4f2bc9fd310fec1d5bd) | 19 s |
 
@@ -125,7 +126,8 @@ that only connected a BCH wallet. Since then:
 - `SwapLockV2.cash`, signature-free and covenant-checked, with 12 tests and a mutation check
 - the BLAZE Desk (`desk/`), live on Cloudflare, and the Swap tab: one card, live progress on both chains, replays of
   real swaps, a Base address made in the browser for people without one
-- desk swaps on mainnet with PUSD and with plain BCH
+- desk swaps on mainnet with PUSD and with plain BCH, and one from a phone wallet (Paytaca) through the live page in 10.2 s
+- found on the way: WizardConnect sends the sign request as relay JSON (transaction hex, BigInts as text), so the page now converts CashScript's request before sending; both the Swap and the Peer to peer flows use it
 
 ## Run it
 

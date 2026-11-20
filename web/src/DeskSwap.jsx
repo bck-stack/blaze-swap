@@ -119,7 +119,8 @@ export default function DeskSwap({ manager, bchAccount, wcState, connectBch, evm
   const payUnits = useMemo(() => {
     if (pay === "PUSD") return Math.round(usd * 100);
     if (!status?.bchUsd) return 0;
-    return Math.round((usd / status.bchUsd) * 1e8);
+    // round up, plus 0.5% for the price moving between this page's price and the desk's quote
+    return Math.ceil((usd / status.bchUsd) * 1e8 * 1.005);
   }, [pay, usd, status]);
 
   // A live quote whenever the amount or the asset changes.

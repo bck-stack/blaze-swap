@@ -8,7 +8,7 @@ import {
 } from "cashscript";
 import SwapLockV2Artifact from "../contracts/SwapLockV2.json";
 import { NETWORK_CONFIG, bytesToHex, computeEvmLockId, generateSecretPair, hexToBytes, normalizeHex32 } from "./swapProtocol.js";
-import { getElectrumProvider } from "./bchBridge.js";
+import { getElectrumProvider, toRelayRequest } from "./bchBridge.js";
 import { fetchEvmLockState } from "./evmBridge.js";
 
 export const DESK_URL = import.meta.env.VITE_DESK_URL || "https://blaze-desk.launch-engine.workers.dev";
@@ -104,7 +104,7 @@ export async function lockWithWallet({ manager, account, quote, contract }) {
     broadcast: false,
     userPrompt: isPusd ? `Swap ${Number(pusdUnits) / 100} PUSD for USDC on Base` : `Swap ${Number(quote.payUnits) / 1e8} BCH for USDC on Base`,
   });
-  const signed = await manager.signTransaction({ transaction: wc, inputPaths: inputs.map((_, i) => [i, "receive", 0]) });
+  const signed = await manager.signTransaction({ transaction: toRelayRequest(wc), inputPaths: inputs.map((_, i) => [i, "receive", 0]) });
   if (signed.error) throw new Error(signed.error);
   return provider.sendRawTransaction(signed.signedTransaction);
 }

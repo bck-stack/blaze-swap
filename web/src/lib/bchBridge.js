@@ -10,6 +10,8 @@ import {
   placeholderPublicKey,
   placeholderSignature,
 } from "cashscript";
+import { encodeTransaction } from "@bitauth/libauth";
+import { sourceOutputToRelay } from "@wizardconnect/core/hdwalletv1-serialize";
 import SwapLockArtifact from "../contracts/SwapLock.json";
 import {
   NETWORK_CONFIG,
@@ -20,6 +22,16 @@ import {
 } from "./swapProtocol.js";
 
 const providerCache = new Map();
+
+// WizardConnect sends the request over a relay as JSON: the transaction as hex and every BigInt as text.
+// CashScript's generateWcTransactionObject returns native libauth types, so convert before signing.
+export function toRelayRequest(wc) {
+  return {
+    ...wc,
+    transaction: typeof wc.transaction === "string" ? wc.transaction : bytesToHex(encodeTransaction(wc.transaction)),
+    sourceOutputs: wc.sourceOutputs.map(sourceOutputToRelay),
+  };
+}
 
 export function getElectrumProvider(networkId = "mainnet") {
   const cfg = NETWORK_CONFIG[networkId] || NETWORK_CONFIG.mainnet;
@@ -205,7 +217,7 @@ export async function fundBchSwapLockWithWallet({
   });
   const inputPaths = allInputs.map((_, idx) => [idx, "receive", 0]);
   const signed = await manager.signTransaction({
-    transaction: wcTransaction,
+    transaction: toRelayRequest(wcTransaction),
     inputPaths,
   });
   if (signed.error) {
@@ -280,7 +292,7 @@ export async function claimBchSwapLock({
     userPrompt: `Claim ${cfg.pusdSymbol} from Atomic Swap`,
   });
   const signed = await manager.signTransaction({
-    transaction: wcTransaction,
+    transaction: toRelayRequest(wcTransaction),
     inputPaths: [[0, "receive", 0]],
   });
   if (signed.error) {
@@ -338,7 +350,7 @@ export async function refundBchSwapLock({
     userPrompt: `Refund expired ${cfg.pusdSymbol} Atomic Swap`,
   });
   const signed = await manager.signTransaction({
-    transaction: wcTransaction,
+    transaction: toRelayRequest(wcTransaction),
     inputPaths: [[0, "receive", 0]],
   });
   if (signed.error) {
