@@ -869,3 +869,78 @@ select.network-select {
   margin-bottom: 0.6rem;
   display: inline-block;
 }
+
+/* direction flip and the one wallet style for every chain (BCH wallets via WizardConnect, Base via the browser wallet) */
+button.swap-arrow {
+  font-size: 1.15rem;
+  cursor: pointer;
+  transition: transform 0.25s ease, color 0.2s ease, border-color 0.2s ease;
+}
+button.swap-arrow:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--border-accent);
+  transform: rotate(180deg);
+}
+button.swap-arrow:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.swap-row-head {
+  align-items: center;
+}
+.wallet-line {
+  display: flex;
+  min-width: 0;
+}
+.wallet-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  max-width: 100%;
+  padding: 0.22rem 0.65rem;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+}
+.wallet-pill::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+}
+.wallet-pill.bch::before {
+  background: var(--emerald);
+}
+.wallet-pill.base::before {
+  background: var(--base-blue);
+}
+.wallet-pill.is-action {
+  cursor: pointer;
+  color: var(--muted);
+  border-style: dashed;
+}
+.wallet-pill.is-action:hover:not(:disabled) {
+  color: var(--text);
+  border-style: solid;
+}
+.wallet-pill.bch.is-action:hover:not(:disabled) {
+  border-color: var(--border-accent);
+}
+.wallet-pill.base.is-action:hover:not(:disabled) {
+  border-color: rgba(96, 165, 250, 0.5);
+}
+.big-amount + .small-muted {
+  margin-top: 0.15rem;
+}
+.wallet-pill.head-pill {
+  padding: 0.45rem 0.85rem;
+  font-size: 0.82rem;
+}

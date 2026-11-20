@@ -66,7 +66,7 @@ export function compactSize(n) {
   if (v <= 0xffffffffn) return concat(Uint8Array.of(0xfe), le(v, 4));
   return concat(Uint8Array.of(0xff), le(v, 8));
 }
-function le(value, bytes) {
+export function le(value, bytes) {
   let v = BigInt(value);
   const out = new Uint8Array(bytes);
   for (let i = 0; i < bytes; i += 1) {
@@ -117,16 +117,19 @@ export function tokenPrefix(token) {
   return concat(Uint8Array.of(0xef), reverse(hexToBin(token.category)), Uint8Array.of(0x10), compactSize(amount));
 }
 
+// One output as it appears in a transaction (and in the hashOutputs of a signing serialization).
+export function encodeOutput(o) {
+  const script = concat(tokenPrefix(o.token), o.lockingBytecode);
+  return concat(le(o.value, 8), compactSize(script.length), script);
+}
+
 export function encodeTransaction({ version = 2, inputs, outputs, locktime = 0 }) {
   const parts = [le(version, 4), compactSize(inputs.length)];
   for (const i of inputs) {
     parts.push(reverse(hexToBin(i.txid)), le(i.vout, 4), compactSize(i.unlocking.length), i.unlocking, le(i.sequence ?? 0xfffffffe, 4));
   }
   parts.push(compactSize(outputs.length));
-  for (const o of outputs) {
-    const script = concat(tokenPrefix(o.token), o.lockingBytecode);
-    parts.push(le(o.value, 8), compactSize(script.length), script);
-  }
+  for (const o of outputs) parts.push(encodeOutput(o));
   parts.push(le(locktime, 4));
   return concat(...parts);
 }
@@ -145,4 +148,42 @@ export function spendLockTx({ utxo, unlocking, toPkh, fee = 600n, locktime = 0 }
     outputs: [{ value, lockingBytecode: p2pkhLockingBytecode(toPkh), token: utxo.token }],
     locktime,
   });
+}
+
+function readCompact(bin, o) {
+  const b = bin[o];
+  if (b < 0xfd) return [BigInt(b), o + 1];
+  const n = b === 0xfd ? 2 : b === 0xfe ? 4 : 8;
+  let v = 0n;
+  for (let i = n - 1; i >= 0; i -= 1) v = (v << 8n) | BigInt(bin[o + 1 + i]);
+  return [v, o + 1 + n];
+}
+
+// The inputs of a raw transaction: { txid, vout, unlocking } each (enough to see how a lock was spent).
+export function decodeInputs(raw) {
+  let o = 4;
+  let n;
+  [n, o] = readCompact(raw, o);
+  const inputs = [];
+  for (let i = 0n; i < n; i += 1n) {
+    const txid = binToHex(reverse(raw.slice(o, o + 32)));
+    const vout = raw[o + 32] | (raw[o + 33] << 8) | (raw[o + 34] << 16) | (raw[o + 35] * 2 ** 24);
+    let len;
+    [len, o] = readCompact(raw, o + 36);
+    const unlocking = raw.slice(o, o + Number(len));
+    o += Number(len) + 4;
+    inputs.push({ txid, vout, unlocking });
+  }
+  return inputs;
+}
+
+// How a SwapLockV2 was spent, from the spending input's unlocking bytecode: a claim starts with the 32-byte secret,
+// a refund with OP_1. Returns { kind: "claim", secret } or { kind: "refund" }.
+export async function spendKind(unlocking, secretHash) {
+  if (unlocking[0] === 0x20) {
+    const secret = unlocking.slice(1, 33);
+    if (binToHex(await sha256(secret)) === secretHash.replace(/^0x/, "").toLowerCase()) return { kind: "claim", secret: binToHex(secret) };
+  }
+  if (unlocking[0] === 0x51) return { kind: "refund" };
+  return { kind: "unknown" };
 }

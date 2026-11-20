@@ -13,7 +13,11 @@ import { base } from "viem/chains";
 import {
   binToHex,
   claimUnlocking,
+  decodeInputs,
   electrumScripthash,
+  encodeTransaction,
+  p2pkhLockingBytecode,
+  spendKind,
   hexToBin,
   p2sh32LockingBytecode,
   refundUnlocking,
@@ -22,7 +26,8 @@ import {
   swapLockV2Redeem,
   txid as txidOf,
 } from "./bchtx.js";
-import { PUSD_CATEGORY, RULES, SWAP_LOCK_BASE, USDC_BASE, checkUserLock, priceQuote, signQuote, verifyQuote } from "./rules.js";
+import { PUSD_CATEGORY, RULES, SWAP_LOCK_BASE, USDC_BASE, checkUserBaseLock, checkUserLock, priceQuote, priceQuoteToBch, signQuote, verifyQuote } from "./rules.js";
+import { buildDeskLock, keyInfo, signP2pkhInputs } from "./bchsign.js";
 
 const ELECTRUM = ["https://electrum.imaginary.cash:50004", "https://bch.imaginary.cash:50004", "https://bch.loping.net:50004", "https://fulcrum.greyh.at:50004"];
 const SWAP_LOCK_ABI = [
@@ -33,6 +38,7 @@ const SWAP_LOCK_ABI = [
 ];
 const ERC20_ABI = [{ type: "function", name: "balanceOf", stateMutability: "view", inputs: [{ type: "address" }], outputs: [{ type: "uint256" }] }];
 const CLAIMED = parseAbiItem("event Claimed(bytes32 indexed id, bytes32 secret)");
+const LOCKED = parseAbiItem("event Locked(bytes32 indexed id, address indexed sender, address indexed recipient, address token, uint256 amount, bytes32 secretHash, uint64 timeout)");
 
 const now = () => Math.floor(Date.now() / 1000);
 const json = (data, status = 200) =>
@@ -95,18 +101,44 @@ async function contractFor(terms) {
   return { redeem, lockingBytecode, scripthash: await electrumScripthash(lockingBytecode) };
 }
 
-async function lockUtxo(scripthash) {
+async function listCoins(scripthash) {
   const [list] = await electrum([["blockchain.scripthash.listunspent", [scripthash]]]);
-  const u = (list || [])[0];
-  if (!u) return null;
-  const t = u.token_data;
-  return {
-    txid: u.tx_hash,
-    vout: u.tx_pos,
-    value: BigInt(u.value),
-    height: u.height,
-    token: t ? { category: t.category, amount: BigInt(t.amount || 0), nft: t.nft || undefined } : undefined,
-  };
+  return (list || []).map((u) => {
+    const t = u.token_data;
+    return {
+      txid: u.tx_hash,
+      vout: u.tx_pos,
+      value: BigInt(u.value),
+      height: u.height,
+      token: t ? { category: t.category, amount: BigInt(t.amount || 0), nft: t.nft || undefined } : undefined,
+    };
+  });
+}
+async function lockUtxo(scripthash) {
+  return (await listCoins(scripthash))[0] || null;
+}
+
+// How a lock that is no longer there was spent: the claim (with the secret in it) or the refund.
+async function findSpend(scripthash, lock, secretHash) {
+  if (!lock) return null;
+  const [history] = await electrum([["blockchain.scripthash.get_history", [scripthash]]]);
+  for (const h of history || []) {
+    if (h.tx_hash === lock.txid) continue;
+    const [raw] = await electrum([["blockchain.transaction.get", [h.tx_hash]]]);
+    const input = decodeInputs(hexToBin(raw)).find((i) => i.txid === lock.txid && i.vout === lock.vout);
+    if (input) return { txid: h.tx_hash, ...(await spendKind(input.unlocking, secretHash)) };
+  }
+  return null;
+}
+
+function deskKey(env) {
+  if (!env.DESK_BCH_WIF) throw new Error("The desk has no BCH key configured.");
+  const k = keyInfo(env.DESK_BCH_WIF);
+  if (binToHex(k.pkh) !== env.DESK_BCH_PKH) throw new Error("DESK_BCH_WIF does not match DESK_BCH_PKH.");
+  return k;
+}
+async function deskCoins(env) {
+  return listCoins(await electrumScripthash(p2pkhLockingBytecode(env.DESK_BCH_PKH)));
 }
 
 async function broadcast(raw) {
@@ -216,12 +248,16 @@ async function addDaily(env, cents) {
 
 // --- The swap ------------------------------------------------------------------------------------------------------
 function termsOf(s, env) {
+  if (s.dir === "toBch") {
+    return { recipientPkh: s.userPkh, refundPkh: env.DESK_BCH_PKH, secretHash: s.hash, timeout: BigInt(s.deskTimeout), maxFee: RULES.maxFee };
+  }
   return { recipientPkh: env.DESK_BCH_PKH, refundPkh: s.userPkh, secretHash: s.hash, timeout: BigInt(s.bchTimeout), maxFee: RULES.maxFee };
 }
 
 // Tries to move a swap forward: lock USDC once the user's BCH lock is there, claim BCH once the secret is known,
 // refund whichever side has expired. Safe to call again and again (from /take, /reveal and the cron).
 async function advance(env, s) {
+  if (s.dir === "toBch") return advanceToBch(env, s);
   const c = await contractFor(termsOf(s, env));
   const t = now();
 
@@ -331,6 +367,153 @@ async function advance(env, s) {
   return s;
 }
 
+// The reverse direction (USDC on Base in, PUSD or BCH out). The user locked USDC on Base for the desk with the
+// secret's hash; the desk funds a SwapLockV2 on Bitcoin Cash that pays the user. When the secret appears (from the
+// page, or from the user's own claim on chain), the user's BCH claim goes out first and only then does the desk take
+// the USDC. If the secret never comes, the desk refunds its BCH and the cron returns the user's USDC after their
+// timeout. The desk never claims the USDC unless the BCH lock was spent by a claim.
+async function advanceToBch(env, s) {
+  const t = now();
+
+  if (s.state === "desk-locking") {
+    // a lock that went out but was not saved is visible at the contract address (its terms are fixed by deskTimeout)
+    const c = await contractFor(termsOf(s, env));
+    const u = await lockUtxo(c.scripthash);
+    if (u) {
+      s.bchLock = { txid: u.txid, vout: u.vout };
+      s.bchLockTx = u.txid;
+      event(s, "desk-locked", { tx: u.txid, recovered: true });
+      s.state = "desk-locked";
+    } else {
+      s.state = "waiting-for-lock";
+    }
+  }
+
+  if (s.state === "waiting-for-lock") {
+    const st = await baseLockState(env, s.lockId);
+    if (!st.exists) {
+      if (t > s.quote.expiresAt + 3600) s.state = "abandoned";
+      return s;
+    }
+    if (!s.events.some((e) => e.step === "user-locked")) event(s, "user-locked", { tx: await baseLockTx(env, s.lockId).catch(() => undefined) });
+    let reason;
+    const check = checkUserBaseLock({ state: st, baseTimeout: s.baseTimeout, nowSec: t });
+    if (t > s.quote.expiresAt) reason = "The lock arrived after the quote expired.";
+    else if (!check.ok) reason = check.reason;
+    else {
+      const { cents } = await dailyCents(env);
+      if (cents + BigInt(s.quote.usdCents) > RULES.dailyUsdCents) reason = "The desk reached today's limit.";
+    }
+    if (!reason) {
+      s.deskTimeout = check.deskTimeout;
+      const c = await contractFor(termsOf(s, env));
+      try {
+        const { tx, spent } = buildDeskLock({
+          coins: await deskCoins(env),
+          deskPkh: env.DESK_BCH_PKH,
+          lockBytecode: c.lockingBytecode,
+          lockValue: BigInt(s.quote.lockSats),
+          pusdCategory: PUSD_CATEGORY,
+          pusdUnits: s.quote.receive === "PUSD" ? BigInt(s.quote.receiveUnits) : 0n,
+        });
+        const raw = encodeTransaction(signP2pkhInputs(tx, spent, deskKey(env)));
+        s.state = "desk-locking";
+        await putSwap(env, s);
+        s.bchLockTx = await broadcast(raw);
+        s.bchLock = { txid: s.bchLockTx, vout: 0 };
+        await addDaily(env, BigInt(s.quote.usdCents));
+        event(s, "desk-locked", { tx: s.bchLockTx });
+        s.state = "desk-locked";
+      } catch (err) {
+        if (s.state === "desk-locking") throw err; // broadcast trouble: the recovery above sorts it out next round
+        reason = String(err.message).slice(0, 160); // the desk is short of PUSD or BCH
+      }
+    }
+    if (reason) {
+      s.state = "refused";
+      s.reason = reason;
+      event(s, "refused", { reason });
+    }
+    return s;
+  }
+
+  if (s.state === "desk-locked") {
+    const c = await contractFor(termsOf(s, env));
+    const u = await lockUtxo(c.scripthash);
+    if (u && s.secret) {
+      // the page handed over the secret: deliver the user's coins (the claim needs no signature)
+      try {
+        s.bchClaimTx = await broadcast(spendLockTx({ utxo: u, unlocking: claimUnlocking(s.secret, c.redeem), toPkh: s.userPkh }));
+        event(s, "user-paid", { tx: s.bchClaimTx, by: "desk" });
+        s.state = "user-paid";
+      } catch (err) {
+        s.lastError = String(err.message).slice(0, 200); // most likely the page's own claim got there first
+        return s;
+      }
+    } else if (!u) {
+      const spend = await findSpend(c.scripthash, s.bchLock, s.hash);
+      if (spend?.kind === "claim") {
+        s.secret = spend.secret;
+        s.bchClaimTx = spend.txid;
+        event(s, "user-paid", { tx: spend.txid, by: "user" });
+        s.state = "user-paid";
+      } else if (spend?.kind === "refund") {
+        s.deskRefundTx = spend.txid;
+        event(s, "desk-refunded", { tx: spend.txid });
+        s.state = "refused";
+        s.reason = "The secret never came; both sides go back to their owners.";
+        return s;
+      } else {
+        return s; // the indexer has not caught up yet
+      }
+    } else if (t >= s.deskTimeout) {
+      try {
+        s.deskRefundTx = await broadcast(spendLockTx({ utxo: u, unlocking: refundUnlocking(c.redeem), toPkh: env.DESK_BCH_PKH, locktime: s.deskTimeout }));
+        event(s, "desk-refunded", { tx: s.deskRefundTx });
+        s.state = "refused";
+        s.reason = "The secret never came; both sides go back to their owners.";
+      } catch (err) {
+        s.lastError = String(err.message).slice(0, 200); // "non-final" until median time passes the timeout
+      }
+      return s;
+    } else {
+      return s;
+    }
+  }
+
+  if (s.state === "user-paid") {
+    // the user has their coins: now the desk takes the USDC with the same secret
+    const st = await baseLockState(env, s.lockId);
+    if (!st.settled) {
+      s.baseClaimTx = await sendBase(env, "claim", [s.lockId, `0x${s.secret}`]);
+      event(s, "desk-claimed", { tx: s.baseClaimTx });
+    }
+    s.state = "done";
+    s.doneAt = Date.now();
+    return s;
+  }
+
+  if (s.state === "refused") {
+    // the user's USDC goes back to them after their timeout; the desk sends the refund and pays the gas
+    if (t >= s.baseTimeout) {
+      const st = await baseLockState(env, s.lockId);
+      if (st.exists && !st.settled) {
+        s.userRefundTx = await sendBase(env, "refund", [s.lockId]);
+        event(s, "user-refunded", { tx: s.userRefundTx });
+      }
+      s.state = "user-refunded";
+    }
+  }
+  return s;
+}
+
+async function baseLockTx(env, lockId) {
+  const { pub } = baseClients(env);
+  const latest = await pub.getBlockNumber();
+  const logs = await pub.getLogs({ address: SWAP_LOCK_BASE, event: LOCKED, args: { id: lockId }, fromBlock: latest - 5000n, toBlock: latest });
+  return logs[0]?.transactionHash;
+}
+
 async function handle(request, env) {
   const url = new URL(request.url);
   if (request.method === "OPTIONS") return json({});
@@ -338,6 +521,8 @@ async function handle(request, env) {
 
   if (url.pathname === "/api/status") {
     const { pub, account } = baseClients(env);
+    let coinsError;
+    const coins = deskCoins(env).catch((e) => { coinsError = String(e?.message || e).slice(0, 120); return null; });
     const [usdc, eth, price, day] = await Promise.all([
       pub.readContract({ address: USDC_BASE, abi: ERC20_ABI, functionName: "balanceOf", args: [account.address] }),
       pub.getBalance({ address: account.address }),
@@ -347,7 +532,13 @@ async function handle(request, env) {
     return json({
       ok: true,
       desk: { bchPkh: env.DESK_BCH_PKH, base: account.address },
-      liquidity: { usdcUnits: usdc, ethWei: eth },
+      liquidity: await coins.then((cs) => ({
+        usdcUnits: usdc,
+        ethWei: eth,
+        bchSats: cs ? cs.filter((c) => !c.token).reduce((n, c) => n + c.value, 0n) : undefined,
+        pusdUnits: cs ? cs.filter((c) => c.token?.category === PUSD_CATEGORY).reduce((n, c) => n + c.token.amount, 0n) : undefined,
+        bchError: coinsError,
+      })),
       bchUsd: price,
       rules: { feeBps: RULES.feeBps, minUsdCents: RULES.minUsdCents, maxUsdCents: RULES.maxUsdCents, maxFee: RULES.maxFee, lockExtraSats: RULES.lockExtraSats },
       todayUsdCents: day.cents,
@@ -358,6 +549,29 @@ async function handle(request, env) {
 
   if (url.pathname === "/api/quote" && request.method === "POST") {
     const body = await request.json().catch(() => ({}));
+    if (body.dir === "toBch") {
+      try {
+        const price = body.receive === "BCH" ? await bchUsd() : 0;
+        const q = priceQuoteToBch({ receive: body.receive, receiveUnits: BigInt(body.receiveUnits ?? 0), bchUsd: price });
+        const quote = {
+          dir: "toBch",
+          receive: q.receive,
+          receiveUnits: q.receiveUnits.toString(),
+          usdcUnits: q.usdcUnits.toString(),
+          feeUnits: q.feeUnits.toString(),
+          usdCents: ((q.usdMicros + 9_999n) / 10_000n).toString(),
+          lockSats: q.lockSats.toString(),
+          bchUsd: price || undefined,
+          deskBchPkh: env.DESK_BCH_PKH,
+          deskBase: baseClients(env).account.address,
+          maxFee: RULES.maxFee.toString(),
+          expiresAt: t + RULES.quoteTtlSec,
+        };
+        return json({ ok: true, quote, mac: await signQuote(env.QUOTE_KEY, quote) });
+      } catch (err) {
+        return fail(err.message);
+      }
+    }
     try {
       const price = body.pay === "BCH" ? await bchUsd() : 0;
       const q = priceQuote({ pay: body.pay, payUnits: BigInt(body.payUnits ?? 0), bchUsd: price });
@@ -387,6 +601,25 @@ async function handle(request, env) {
     if (!isHex(body.secretHash, 32)) return fail("secretHash must be 32 bytes of hex.");
     if (!isHex(body.userPkh, 20)) return fail("userPkh must be 20 bytes of hex.");
     if (!/^0x[0-9a-fA-F]{40}$/.test(body.userBase || "")) return fail("userBase must be a Base address.");
+    if (body.quote.dir === "toBch") {
+      const baseTimeout = Number(body.baseTimeout);
+      if (!Number.isInteger(baseTimeout)) return fail("baseTimeout must be a unix time.");
+      const hash = strip0x(body.secretHash);
+      let s = await getSwap(env, hash);
+      if (!s) {
+        const lockId = lockIdOf({ sender: body.userBase, recipient: baseClients(env).account.address, amount: body.quote.usdcUnits, secretHash: hash, timeout: baseTimeout });
+        s = { dir: "toBch", hash, state: "waiting-for-lock", created: t, quote: body.quote, userPkh: strip0x(body.userPkh), userBase: body.userBase, baseTimeout, lockId, events: [] };
+        event(s, "quoted");
+        await putSwap(env, s);
+      }
+      try {
+        s = await advance(env, s);
+      } catch (err) {
+        s.lastError = String(err.message).slice(0, 200);
+      }
+      await putSwap(env, s);
+      return json({ ok: true, swap: publicSwap(s) });
+    }
     const bchTimeout = Number(body.bchTimeout);
     if (!Number.isInteger(bchTimeout)) return fail("bchTimeout must be a unix time.");
     const hash = strip0x(body.secretHash);
@@ -412,7 +645,12 @@ async function handle(request, env) {
     const hash = binToHex(await sha256(hexToBin(secret)));
     let s = await getSwap(env, hash);
     if (!s) return fail("No swap with this secret.", 404);
-    if (s.state === "desk-locked" && !s.secret) {
+    if (s.dir === "toBch") {
+      if (s.state === "desk-locked" && !s.secret) {
+        s.secret = secret;
+        await putSwap(env, s);
+      }
+    } else if (s.state === "desk-locked" && !s.secret) {
       // Pay the user first: the claim can only send the USDC to their address, the desk only pays the gas.
       const st = await baseLockState(env, s.lockId);
       if (!st.settled) {

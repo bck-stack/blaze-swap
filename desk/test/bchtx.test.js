@@ -108,3 +108,17 @@ test('txid is the reversed double sha256', async () => {
 test('a lock too small to cover the fee is refused before broadcasting', () => {
   assert.throws(() => spendLockTx({ utxo: { txid: '00'.repeat(32), vout: 0, value: 1_000n }, unlocking: new Uint8Array(1), toPkh: '00'.repeat(20) }));
 });
+
+test('decodeInputs and spendKind read the secret back out of a claim, and spot a refund', async () => {
+  const { decodeInputs, spendKind } = await import('../src/bchtx.js');
+  const t = terms();
+  const redeem = swapLockV2Redeem(t);
+  const utxo = { txid: 'ab'.repeat(32), vout: 3, value: 5_000n };
+  const claim = spendLockTx({ utxo, unlocking: claimUnlocking(t.secret, redeem), toPkh: t.recipientPkh });
+  const [inp] = decodeInputs(claim);
+  assert.equal(inp.txid, utxo.txid);
+  assert.equal(inp.vout, 3);
+  assert.deepEqual(await spendKind(inp.unlocking, t.secretHash), { kind: 'claim', secret: t.secret });
+  const refund = spendLockTx({ utxo, unlocking: refundUnlocking(redeem), toPkh: t.refundPkh, locktime: Number(t.timeout) });
+  assert.equal((await spendKind(decodeInputs(refund)[0].unlocking, t.secretHash)).kind, 'refund');
+});

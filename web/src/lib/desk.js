@@ -9,7 +9,7 @@ import {
 import SwapLockV2Artifact from "../contracts/SwapLockV2.json";
 import { NETWORK_CONFIG, bytesToHex, computeEvmLockId, generateSecretPair, hexToBytes, normalizeHex32 } from "./swapProtocol.js";
 import { getElectrumProvider, toRelayRequest } from "./bchBridge.js";
-import { fetchEvmLockState } from "./evmBridge.js";
+import { approveEvmUsdc, fetchEvmLockState, getEvmPublicClient, lockEvmSwap } from "./evmBridge.js";
 
 export const DESK_URL = import.meta.env.VITE_DESK_URL || "https://blaze-desk.launch-engine.workers.dev";
 export const USER_LOCK_HOURS = 3;
@@ -24,6 +24,7 @@ async function call(path, body) {
 }
 export const deskStatus = () => call("/api/status");
 export const deskQuote = (pay, payUnits) => call("/api/quote", { pay, payUnits: String(payUnits) });
+export const deskQuoteToBch = (receive, receiveUnits) => call("/api/quote", { dir: "toBch", receive, receiveUnits: String(receiveUnits) });
 export const deskTake = (body) => call("/api/take", body);
 export const deskReveal = (secret) => call("/api/reveal", { secret });
 export const deskSwap = (hash) => call(`/api/swap/${hash}`);
@@ -131,6 +132,56 @@ export async function refundWithoutWallet({ terms, toPkh }) {
   builder.addInput(utxo, contract.unlock.refund());
   const { encodeCashAddress } = await import("@bitauth/libauth");
   const to = encodeCashAddress({ prefix: "bitcoincash", type: utxo.token ? "p2pkhWithTokens" : "p2pkh", payload: hexToBytes(toPkh) });
+  builder.addOutput({ to: typeof to === "string" ? to : to.address, amount: utxo.satoshis - 600n, token: utxo.token });
+  return builder.send();
+}
+
+// --- The reverse direction: USDC on Base in, PUSD or BCH out ---------------------------------------------------
+
+// The user's side on Base: allow SwapLock to move the USDC (only if it cannot already), then lock it for the desk.
+export async function lockUsdcForDesk({ account, quote, secretHash, timeout, onApproved }) {
+  const amount = BigInt(quote.usdcUnits);
+  const allowance = await getEvmPublicClient("mainnet").readContract({
+    address: cfg.evmUsdcAddress,
+    abi: [{ type: "function", name: "allowance", stateMutability: "view", inputs: [{ type: "address" }, { type: "address" }], outputs: [{ type: "uint256" }] }],
+    functionName: "allowance",
+    args: [account, cfg.defaultSwapLockAddress],
+  });
+  if (allowance < amount) {
+    await approveEvmUsdc({ networkId: "mainnet", account, swapLockAddress: cfg.defaultSwapLockAddress, amount });
+    onApproved?.();
+  }
+  return lockEvmSwap({ networkId: "mainnet", account, swapLockAddress: cfg.defaultSwapLockAddress, recipient: quote.deskBase, amount, secretHash, timeout });
+}
+
+// The desk's lock on Bitcoin Cash, rebuilt from its terms: it pays the user, refunds the desk.
+export function deskBchContract({ userPkh, quote, secretHash, deskTimeout }) {
+  return new Contract(
+    SwapLockV2Artifact,
+    [hexToBytes(userPkh), hexToBytes(quote.deskBchPkh), hexToBytes(normalizeHex32(secretHash)), BigInt(deskTimeout), BigInt(quote.maxFee)],
+    { provider: getElectrumProvider("mainnet"), addressType: "p2sh32" }
+  );
+}
+
+// Before the secret leaves this page: the desk's coins are really at that contract, enough of them, with time left.
+export async function checkDeskBchLock({ userPkh, quote, secretHash, deskTimeout }) {
+  if (deskTimeout < Date.now() / 1000 + 15 * 60) return { ok: false, reason: "The desk's lock ends too soon." };
+  const contract = deskBchContract({ userPkh, quote, secretHash, deskTimeout });
+  const [utxo] = await contract.getUtxos();
+  if (!utxo) return { ok: false, reason: "The desk's Bitcoin Cash lock is not visible yet." };
+  if (utxo.satoshis < BigInt(quote.lockSats)) return { ok: false, reason: "The desk's lock holds too few satoshis." };
+  if (quote.receive === "PUSD" && !(utxo.token?.category === cfg.pusdCategory && utxo.token.amount >= BigInt(quote.receiveUnits))) {
+    return { ok: false, reason: "The desk's lock holds too little PUSD." };
+  }
+  return { ok: true, contract, utxo };
+}
+
+// The claim needs no signature, so the page can send it itself if the desk does not.
+export async function claimDeskBchLock({ contract, utxo, secret, userPkh }) {
+  const { encodeCashAddress } = await import("@bitauth/libauth");
+  const to = encodeCashAddress({ prefix: "bitcoincash", type: utxo.token ? "p2pkhWithTokens" : "p2pkh", payload: hexToBytes(userPkh) });
+  const builder = new TransactionBuilder({ provider: getElectrumProvider("mainnet") });
+  builder.addInput(utxo, contract.unlock.claim(hexToBytes(normalizeHex32(secret))));
   builder.addOutput({ to: typeof to === "string" ? to : to.address, amount: utxo.satoshis - 600n, token: utxo.token });
   return builder.send();
 }

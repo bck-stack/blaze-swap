@@ -68,3 +68,46 @@ export async function verifyQuote(key, body, mac, nowSec) {
   if (nowSec > body.expiresAt) return "The quote expired; get a new one.";
   return null;
 }
+
+// --- The reverse direction: USDC on Base in, PUSD or BCH on Bitcoin Cash out ------------------------------------
+// The user is still the maker: they lock USDC on Base first (with the secret's hash, paying the desk), the desk then
+// funds a SwapLockV2 on Bitcoin Cash that pays the user. The user names what they want to receive.
+export const REVERSE = {
+  claimFeeSats: 600n, // what the claim transaction leaves to miners (see spendLockTx)
+  pusdLockSats: 1600n, // a PUSD lock carries 1,000 sat of dust to the user plus the claim fee
+  baseTimeoutMinSec: 2.5 * 3600,
+  baseTimeoutMaxSec: 24 * 3600,
+  // The desk's BCH lock ends at least this long before the user's Base lock: an hour of margin plus up to an hour by
+  // which Bitcoin Cash median time trails the clock (so the desk can refund only about an hour after its timeout).
+  marginSec: 2 * 3600,
+};
+
+// receive: "PUSD" (units, 2 decimals) or "BCH" (sats). The user locks usdcUnits on Base.
+export function priceQuoteToBch({ receive, receiveUnits, bchUsd }) {
+  receiveUnits = BigInt(receiveUnits);
+  if (receiveUnits <= 0n) throw new Error("Amount must be positive.");
+  let usdMicros;
+  if (receive === "PUSD") usdMicros = receiveUnits * 10_000n;
+  else if (receive === "BCH") {
+    if (!(bchUsd > 0)) throw new Error("No BCH price right now; try again in a minute.");
+    usdMicros = (receiveUnits * BigInt(Math.round(bchUsd * 1e6)) + 99_999_999n) / 100_000_000n;
+  } else throw new Error("Receive PUSD or BCH.");
+  if (usdMicros < usdcFromCents(RULES.minUsdCents)) throw new Error("The desk takes at least $0.05.");
+  if (usdMicros > usdcFromCents(RULES.maxUsdCents)) throw new Error("The demo desk takes at most $0.25 a swap.");
+  const feeUnits = (usdMicros * RULES.feeBps + 9_999n) / 10_000n;
+  const usdcUnits = usdMicros + feeUnits;
+  const lockSats = receive === "BCH" ? receiveUnits + REVERSE.claimFeeSats : REVERSE.pusdLockSats;
+  return { receive, receiveUnits, usdMicros, feeUnits, usdcUnits, lockSats };
+}
+
+// What the desk checks on the user's Base lock (found by its id, which commits to token, sender, recipient = desk,
+// amount, hash and timeout) before it puts its own coins down on Bitcoin Cash.
+export function checkUserBaseLock({ state, baseTimeout, nowSec }) {
+  if (!state?.exists) return { ok: false, retry: true, reason: "Your Base lock is not visible yet." };
+  if (state.settled) return { ok: false, reason: "Your Base lock is already settled." };
+  if (baseTimeout < nowSec + REVERSE.baseTimeoutMinSec) return { ok: false, reason: "Your Base lock expires too soon for the desk." };
+  if (baseTimeout > nowSec + REVERSE.baseTimeoutMaxSec) return { ok: false, reason: "Your Base lock expires too far in the future." };
+  const deskTimeout = Math.min(nowSec + RULES.deskTimeoutSec, baseTimeout - REVERSE.marginSec);
+  if (deskTimeout < nowSec + 20 * 60) return { ok: false, reason: "Not enough time left to finish safely." };
+  return { ok: true, deskTimeout };
+}

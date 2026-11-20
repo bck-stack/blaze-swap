@@ -209,12 +209,20 @@ export default function App() {
 
   useEffect(() => {
     if (wcState === "connected" && manager) {
-      const pubkey = manager.getPubkey(0, 0n);
-      if (pubkey) {
-        const derived = derivePkhAndAddressesFromPubkey(pubkey, networkId);
-        setBchAccount(derived);
-        return;
-      }
+      // Some wallets (Selene) send their public keys a moment after the connection opens, so keep looking briefly.
+      const read = () => {
+        const pubkey = manager.getPubkey(0, 0n);
+        if (!pubkey) return false;
+        setBchAccount(derivePkhAndAddressesFromPubkey(pubkey, networkId));
+        return true;
+      };
+      if (read()) return;
+      let tries = 0;
+      const timer = setInterval(() => {
+        tries += 1;
+        if (read() || tries > 60) clearInterval(timer);
+      }, 500);
+      return () => clearInterval(timer);
     }
     if (wcState === "idle" || wcState === "disconnected") {
       setBchAccount(null);
@@ -727,42 +735,25 @@ export default function App() {
             <option value="chipnet">BCH Chipnet ↔ Base Sepolia</option>
           </select>
 
+          {/* one pill style for every wallet: green dot for Bitcoin Cash (any WizardConnect wallet), blue for Base */}
           {wcState === "connected" ? (
-            <button
-              type="button"
-              className="btn"
-              onClick={disconnectBch}
-              title={bchAccount?.tokenAddress}
-            >
-              BCH: {shortAddr(bchAccount?.tokenAddress || walletName || "Connected")}
+            <button type="button" className="wallet-pill bch head-pill" onClick={disconnectBch} title={`${walletName || "BCH wallet"} · ${bchAccount?.tokenAddress || ""} (click to disconnect)`}>
+              {walletName ? `${walletName} · ` : "BCH · "}
+              {shortAddr((bchAccount?.tokenAddress || "").replace(/^bitcoincash:/, "") || "connected")}
             </button>
           ) : (
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={connectBch}
-              disabled={wcState === "connecting"}
-            >
-              {wcState === "connecting" ? "Waiting BCH…" : "Connect WizardConnect"}
+            <button type="button" className="wallet-pill bch is-action head-pill" onClick={connectBch} disabled={wcState === "connecting"}>
+              {wcState === "connecting" ? "Waiting for BCH wallet…" : "Connect BCH wallet"}
             </button>
           )}
 
           {evmAddress ? (
-            <button
-              type="button"
-              className="btn btn-base"
-              onClick={handleConnectEvm}
-            >
-              Base: {shortAddr(evmAddress)}
+            <button type="button" className="wallet-pill base head-pill" onClick={handleConnectEvm} title={evmAddress}>
+              Base · {shortAddr(evmAddress)}
             </button>
           ) : (
-            <button
-              type="button"
-              className="btn btn-base"
-              onClick={handleConnectEvm}
-              disabled={busyAction === "evm-connect"}
-            >
-              Connect Base Wallet
+            <button type="button" className="wallet-pill base is-action head-pill" onClick={handleConnectEvm} disabled={busyAction === "evm-connect"}>
+              Connect Base wallet
             </button>
           )}
         </div>
