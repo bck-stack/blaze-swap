@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useWizardConnect, WizardConnectQRDialog } from "@wizardconnect/react";
+import DeskSwap from "./DeskSwap.jsx";
 import {
   BLAZE_COMPLIANCE,
   NETWORK_CONFIG,
@@ -84,6 +85,8 @@ const PROOF = {
 };
 
 export default function App() {
+  // "desk": one wallet swaps against the BLAZE Desk (default). "p2p": two people swap with a share link.
+  const [view, setView] = useState(() => (globalThis.location?.hash?.startsWith("#offer=") ? "p2p" : "desk"));
   const [networkId, setNetworkId] = useState("mainnet");
   const cfg = NETWORK_CONFIG[networkId];
 
@@ -816,8 +819,29 @@ export default function App() {
           </section>
         )}
 
+        <div className="view-tabs" role="tablist">
+          <button type="button" role="tab" aria-selected={view === "desk"} className={view === "desk" ? "on" : ""} onClick={() => { setView("desk"); setNetworkId("mainnet"); }}>
+            Swap
+          </button>
+          <button type="button" role="tab" aria-selected={view === "p2p"} className={view === "p2p" ? "on" : ""} onClick={() => setView("p2p")}>
+            Peer to peer
+          </button>
+        </div>
+
+        {view === "desk" ? (
+          <DeskSwap
+            manager={manager}
+            bchAccount={bchAccount}
+            wcState={wcState}
+            connectBch={connectBch}
+            evmAddress={evmAddress}
+            onConnectEvm={handleConnectEvm}
+            balances={balances}
+          />
+        ) : (
+        <>
         <section className="hero">
-          <h1>Swap Base USDC and BCH ParyonUSD without a custodian.</h1>
+          <h1>Swap with someone you know, using a share link.</h1>
           <p>
             One 32-byte SHA-256 secret atomically settles both CashScript P2SH32
             CashTokens and Base ERC-20 SwapLock contracts. If either side stalls,
@@ -1090,6 +1114,8 @@ export default function App() {
             ))}
           </ul>
         </section>
+        </>
+        )}
       </main>
 
       {uri && qrUri && (

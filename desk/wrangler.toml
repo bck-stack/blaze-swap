@@ -1,0 +1,21 @@
+# BLAZE Desk: the automatic counterparty for one-wallet swaps (see src/index.js).
+# Secrets (not in this file): DESK_EVM_KEY (the desk's Base key), QUOTE_KEY (HMAC key for quotes).
+name = "blaze-desk"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+account_id = "00cd09b221f9bd7433c3bbbadf7085c9"
+
+[vars]
+# The desk's BCH address bitcoincash:qzjwkdak27tmazh4y023kvuxvv0q0fq2futuhmuslu (claims go here; the desk never signs on BCH).
+DESK_BCH_PKH = "a4eb37b65797be8af523d51b3386631e07a40a4f"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "blaze-desk"
+database_id = "3c013afd-5a2f-4767-ba7c-9bc1838cb42e"
+
+[triggers]
+crons = ["* * * * *"]
+
+[observability]
+enabled = true

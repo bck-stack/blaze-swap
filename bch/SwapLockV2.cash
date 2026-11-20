@@ -1,0 +1,34 @@
+pragma cashscript ^0.14.0;
+
+// One side of an atomic swap on BCH, version 2. Like SwapLock, it holds BCH or a CashToken (such as PUSD) until the
+// recipient's secret appears or the timeout passes. The difference: neither path needs a signature. The contract itself
+// fixes where the coins can go, so anyone may broadcast the claim or the refund (a relayer, a watcher, the other party),
+// and the coins can still only reach the recipient (claim) or the original owner (refund).
+//
+// Both paths spend exactly this one input into exactly one output that keeps the token category, the token amount and
+// all but `maxFee` satoshis. One input and one output also stop a broadcaster from merging locks to skim the fees.
+contract SwapLockV2(bytes20 recipientPkh, bytes20 refundPkh, bytes32 secretHash, int timeout, int maxFee) {
+    function claim(bytes secret) {
+        require(secret.length == 32);
+        require(sha256(secret) == secretHash);
+        require(tx.inputs.length == 1);
+        require(tx.outputs.length == 1);
+        require(tx.outputs[0].lockingBytecode == new LockingBytecodeP2PKH(recipientPkh));
+        require(tx.outputs[0].tokenCategory == tx.inputs[0].tokenCategory);
+        require(tx.outputs[0].tokenAmount == tx.inputs[0].tokenAmount);
+        require(tx.outputs[0].nftCommitment == tx.inputs[0].nftCommitment);
+        require(tx.outputs[0].value >= tx.inputs[0].value - maxFee);
+    }
+
+    // timeout is a block height or a unix time (>= 500,000,000), checked against the transaction's locktime.
+    function refund() {
+        require(tx.time >= timeout);
+        require(tx.inputs.length == 1);
+        require(tx.outputs.length == 1);
+        require(tx.outputs[0].lockingBytecode == new LockingBytecodeP2PKH(refundPkh));
+        require(tx.outputs[0].tokenCategory == tx.inputs[0].tokenCategory);
+        require(tx.outputs[0].tokenAmount == tx.inputs[0].tokenAmount);
+        require(tx.outputs[0].nftCommitment == tx.inputs[0].nftCommitment);
+        require(tx.outputs[0].value >= tx.inputs[0].value - maxFee);
+    }
+}

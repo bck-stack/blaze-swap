@@ -1,0 +1,15 @@
+{
+  "name": "blaze-desk",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "dev": "npx wrangler@4 dev",
+    "deploy": "npx wrangler@4 deploy"
+  },
+  "dependencies": {
+    "@bitauth/libauth": "^3.1.0-next.8",
+    "cashscript": "^0.14.0",
+    "viem": "^2.57.20"
+  }
+}

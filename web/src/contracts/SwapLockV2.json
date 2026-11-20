@@ -1,0 +1,56 @@
+{
+  "contractName": "SwapLockV2",
+  "constructorInputs": [
+    { "name": "recipientPkh", "type": "bytes20" },
+    { "name": "refundPkh", "type": "bytes20" },
+    { "name": "secretHash", "type": "bytes32" },
+    { "name": "timeout", "type": "int" },
+    { "name": "maxFee", "type": "int" }
+  ],
+  "abi": [
+    {
+      "name": "claim",
+      "inputs": [
+        { "name": "secret", "type": "bytes" }
+      ]
+    },
+    { "name": "refund", "inputs": [] }
+  ],
+  "bytecode": "OP_5 OP_PICK OP_0 OP_NUMEQUAL OP_IF OP_6 OP_PICK OP_SIZE OP_NIP 20 OP_NUMEQUALVERIFY OP_6 OP_ROLL OP_SHA256 OP_3 OP_ROLL OP_EQUALVERIFY OP_TXINPUTCOUNT OP_1 OP_NUMEQUALVERIFY OP_TXOUTPUTCOUNT OP_1 OP_NUMEQUALVERIFY OP_0 OP_OUTPUTBYTECODE 76a914 OP_ROT OP_CAT 88ac OP_CAT OP_EQUALVERIFY OP_0 OP_OUTPUTTOKENCATEGORY OP_0 OP_UTXOTOKENCATEGORY OP_EQUALVERIFY OP_0 OP_OUTPUTTOKENAMOUNT OP_0 OP_UTXOTOKENAMOUNT OP_NUMEQUALVERIFY OP_0 OP_OUTPUTTOKENCOMMITMENT OP_0 OP_UTXOTOKENCOMMITMENT OP_EQUALVERIFY OP_0 OP_OUTPUTVALUE OP_0 OP_UTXOVALUE OP_4 OP_ROLL OP_SUB OP_GREATERTHANOREQUAL OP_NIP OP_NIP OP_NIP OP_ELSE OP_5 OP_ROLL OP_1 OP_NUMEQUALVERIFY OP_3 OP_ROLL OP_CHECKLOCKTIMEVERIFY OP_DROP OP_TXINPUTCOUNT OP_1 OP_NUMEQUALVERIFY OP_TXOUTPUTCOUNT OP_1 OP_NUMEQUALVERIFY OP_0 OP_OUTPUTBYTECODE 76a914 OP_3 OP_ROLL OP_CAT 88ac OP_CAT OP_EQUALVERIFY OP_0 OP_OUTPUTTOKENCATEGORY OP_0 OP_UTXOTOKENCATEGORY OP_EQUALVERIFY OP_0 OP_OUTPUTTOKENAMOUNT OP_0 OP_UTXOTOKENAMOUNT OP_NUMEQUALVERIFY OP_0 OP_OUTPUTTOKENCOMMITMENT OP_0 OP_UTXOTOKENCOMMITMENT OP_EQUALVERIFY OP_0 OP_OUTPUTVALUE OP_0 OP_UTXOVALUE OP_4 OP_ROLL OP_SUB OP_GREATERTHANOREQUAL OP_NIP OP_NIP OP_ENDIF",
+  "source": "pragma cashscript ^0.14.0;\n\n// One side of an atomic swap on BCH, version 2. Like SwapLock, it holds BCH or a CashToken (such as PUSD) until the\n// recipient's secret appears or the timeout passes. The difference: neither path needs a signature. The contract itself\n// fixes where the coins can go, so anyone may broadcast the claim or the refund (a relayer, a watcher, the other party),\n// and the coins can still only reach the recipient (claim) or the original owner (refund).\n//\n// Both paths spend exactly this one input into exactly one output that keeps the token category, the token amount and\n// all but `maxFee` satoshis. One input and one output also stop a broadcaster from merging locks to skim the fees.\ncontract SwapLockV2(bytes20 recipientPkh, bytes20 refundPkh, bytes32 secretHash, int timeout, int maxFee) {\n    function claim(bytes secret) {\n        require(secret.length == 32);\n        require(sha256(secret) == secretHash);\n        require(tx.inputs.length == 1);\n        require(tx.outputs.length == 1);\n        require(tx.outputs[0].lockingBytecode == new LockingBytecodeP2PKH(recipientPkh));\n        require(tx.outputs[0].tokenCategory == tx.inputs[0].tokenCategory);\n        require(tx.outputs[0].tokenAmount == tx.inputs[0].tokenAmount);\n        require(tx.outputs[0].nftCommitment == tx.inputs[0].nftCommitment);\n        require(tx.outputs[0].value >= tx.inputs[0].value - maxFee);\n    }\n\n    // timeout is a block height or a unix time (>= 500,000,000), checked against the transaction's locktime.\n    function refund() {\n        require(tx.time >= timeout);\n        require(tx.inputs.length == 1);\n        require(tx.outputs.length == 1);\n        require(tx.outputs[0].lockingBytecode == new LockingBytecodeP2PKH(refundPkh));\n        require(tx.outputs[0].tokenCategory == tx.inputs[0].tokenCategory);\n        require(tx.outputs[0].tokenAmount == tx.inputs[0].tokenAmount);\n        require(tx.outputs[0].nftCommitment == tx.inputs[0].nftCommitment);\n        require(tx.outputs[0].value >= tx.inputs[0].value - maxFee);\n    }\n}\n",
+  "fingerprint": "2475cf6047282c7fab6ce6abd606e937b8ab0957be631701e1ac335d50b2af92",
+  "debug": {
+    "bytecode": "5579009c635679827701209d567aa8537a88c3519dc4519d00cd0376a9147b7e0288ac7e8800d100ce8800d300d09d00d200cf8800cc00c6547a94a277777767557a519d537ab175c3519dc4519d00cd0376a914537a7e0288ac7e8800d100ce8800d300d09d00d200cf8800cc00c6547a94a2777768",
+    "sourceMap": "11:4:21:5;;;;;12:16:12:22;;:::29:1;;:33::35:0;:8::37:1;13:23:13:29:0;;:16::30:1;:34::44:0;;:8::46:1;14:16:14:32:0;:36::37;:8::39:1;15:16:15:33:0;:37::38;:8::40:1;16:27:16:28:0;:16::45:1;:49::87:0;:74::86;:49::87:1;;;:8::89;17:27:17:28:0;:16::43:1;:57::58:0;:47::73:1;:8::75;18:27:18:28:0;:16::41:1;:55::56:0;:45::69:1;:8::71;19:27:19:28:0;:16::43:1;:57::58:0;:47::73:1;:8::75;20:27:20:28:0;:16::35:1;:49::50:0;:39::57:1;:60::66:0;;:39:::1;:8::68;11:33:21:5;;;:4;24::33::0;;;;25:27:25:34;;:8::36:1;;26:16:26:32:0;:36::37;:8::39:1;27:16:27:33:0;:37::38;:8::40:1;28:27:28:28:0;:16::45:1;:49::84:0;:74::83;;:49::84:1;;;:8::86;29:27:29:28:0;:16::43:1;:57::58:0;:47::73:1;:8::75;30:27:30:28:0;:16::41:1;:55::56:0;:45::69:1;:8::71;31:27:31:28:0;:16::43:1;:57::58:0;:47::73:1;:8::75;32:27:32:28:0;:16::35:1;:49::50:0;:39::57:1;:60::66:0;;:39:::1;:8::68;24:22:33:5;;10:0:34:1",
+    "logs": [],
+    "requires": [
+      { "ip": 15, "line": 12 },
+      { "ip": 21, "line": 13 },
+      { "ip": 24, "line": 14 },
+      { "ip": 27, "line": 15 },
+      { "ip": 35, "line": 16 },
+      { "ip": 40, "line": 17 },
+      { "ip": 45, "line": 18 },
+      { "ip": 50, "line": 19 },
+      { "ip": 59, "line": 20 },
+      { "ip": 69, "line": 25 },
+      { "ip": 73, "line": 26 },
+      { "ip": 76, "line": 27 },
+      { "ip": 85, "line": 28 },
+      { "ip": 90, "line": 29 },
+      { "ip": 95, "line": 30 },
+      { "ip": 100, "line": 31 },
+      { "ip": 109, "line": 32 }
+    ],
+    "sourceTags": "54:56:sc;104:105:sc"
+  },
+  "compiler": {
+    "name": "cashc",
+    "version": "0.14.0",
+    "options": {
+      "enforceFunctionParameterTypes": true,
+      "enforceLocktimeGuard": true
+    }
+  },
+  "updatedAt": "2026-11-20T20:10:07.162Z"
+}

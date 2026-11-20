@@ -4,3 +4,6 @@ evm/cache/
 evm/types/
 .env*
 *.log
+web/dist/
+.wrangler/
+desk/.wrangler/
