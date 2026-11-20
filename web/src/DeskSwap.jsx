@@ -245,7 +245,7 @@ export default function DeskSwap({ manager, bchAccount, wcState, connectBch, evm
     const evs = (full.events || []).filter((e) => ["user-locked", "desk-locked", "user-paid", "desk-claimed"].includes(e.step));
     const tx = { "user-locked": full.bchLockTx, "desk-locked": full.baseLockTx, "user-paid": full.baseClaimTx, "desk-claimed": full.bchClaimTx };
     const t0 = evs[0]?.at || Date.now();
-    const shown = { quote: full.quote, startedAt: Date.now(), events: [], running: true };
+    const shown = { quote: full.quote, startedAt: Date.now(), events: [], running: true, createdAt: full.created, hash: full.hash };
     setReplay(shown);
     evs.forEach((e) => {
       replayTimer.current = setTimeout(() => {
@@ -363,7 +363,12 @@ export default function DeskSwap({ manager, bchAccount, wcState, connectBch, evm
               )}
             </>
           ) : replay ? (
-            <Lanes quote={replay.quote} events={replay.events} startedAt={replay.startedAt} running={replay.running} replay />
+            <>
+              <div className="replay-tag">
+                ▶ Replay of a real mainnet swap{replay.createdAt ? ` · ${new Date(replay.createdAt * 1000).toUTCString().slice(5, 22)} UTC` : ""}, real timings and transactions
+              </div>
+              <Lanes quote={replay.quote} events={replay.events} startedAt={replay.startedAt} running={replay.running} replay />
+            </>
           ) : (
             <div className="progress-empty">
               <Lanes quote={quote} events={[]} />
