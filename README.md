@@ -1,6 +1,6 @@
 # BLAZE Swap
 
-Bitcoin Cash and USDC on Base, swapped both ways in about ten seconds. Pay PUSD (ParyonUSD) or plain BCH from your
+Bitcoin Cash and USDC on Base, swapped both ways in seconds (4.2 s from a Selene wallet on mainnet). Pay PUSD (ParyonUSD) or plain BCH from your
 Bitcoin Cash wallet with one signature and the USDC is at your Base address; or lock USDC on Base and PUSD or BCH
 arrives in your Bitcoin Cash wallet. No bridge and no custodian sit in between: two contracts, one on each chain, open
 with the same key, and the key never leaves your browser until the other side is locked for you.
@@ -8,6 +8,7 @@ with the same key, and the key never leaves your browser until the other side is
 Built for [BCH BLAZE 2026](https://dorahacks.io/hackathon/2412), Mainnet track (Stablecoin Bridge).
 
 - Live app: https://bck-stack.github.io/blaze-swap/
+- Video (2 min): https://youtu.be/rLbRk4nbQXA
 - Slides: https://docs.google.com/presentation/d/1HdeE75unpU8LzudUO_zLxLNdqm_7vt2Nj27XM1ON9dE/edit?usp=sharing
 - Before the build week (14 Nov): code https://github.com/bck-stack/blaze-swap/tree/nov14, demo https://bck-stack.github.io/blaze-swap-nov14/
 - Desk API: https://blaze-desk.launch-engine.workers.dev/api/status
