@@ -114,6 +114,7 @@ export default function App() {
   const [slidesUrl, setSlidesUrl] = useState(
     () => localStorage.getItem("blaze_slides_url") || BLAZE_COMPLIANCE.slidesUrl
   );
+  const [addrCopied, setAddrCopied] = useState(false);
   const [donationAddr, setDonationAddr] = useState(
     () =>
       localStorage.getItem("blaze_donation_addr") ||
@@ -695,9 +696,15 @@ export default function App() {
               </button>
             )}
             {donationAddr ? (
-              <span className="banner-pill mono" title={donationAddr}>
-                EMBER2026: {shortAddr(donationAddr)}
-              </span>
+              <button
+                type="button"
+                className="banner-pill mono banner-addr"
+                title="Copy the address"
+                onClick={() => navigator.clipboard?.writeText(donationAddr).then(() => setAddrCopied(true)).catch(() => {})}
+              >
+                EMBER2026 votes (CashTokens): {donationAddr}
+                <span className="banner-copy">{addrCopied ? "copied" : "copy"}</span>
+              </button>
             ) : (
               <button
                 type="button"
