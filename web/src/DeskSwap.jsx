@@ -390,13 +390,13 @@ export default function DeskSwap({ manager, bchAccount, wcState, walletName, con
             </>
           )}
         </h1>
-        <p>Either way, about ten seconds. No bridge and no custodian in between: two locks that open with the same key.</p>
+        <p>Either way, in seconds. No bridge and no custodian in between: two locks that open with the same key.</p>
         {/* real mainnet swaps from real wallets, newest first; any WizardConnect wallet works on the BCH side */}
         <div className="tested-wallets">
           <span className="tested-label">Swapped on mainnet from</span>
-          <span className="wallet-pill bch">Selene · 4.2 s</span>
+          <span className="wallet-pill bch featured">Selene · done in 4.2 s</span>
           <span className="wallet-pill bch">Paytaca · 10.2 s</span>
-          <span className="wallet-pill base">MetaMask → Selene · 13.0 s</span>
+          <span className="wallet-pill base">MetaMask → Selene · 6.3 s</span>
         </div>
       </section>
 
