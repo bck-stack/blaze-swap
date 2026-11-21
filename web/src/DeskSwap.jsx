@@ -359,7 +359,23 @@ export default function DeskSwap({ manager, bchAccount, wcState, walletName, con
         ? { "desk-locked": full.bchLockTx, "user-paid": full.bchClaimTx, "desk-claimed": full.baseClaimTx }
         : { "user-locked": full.bchLockTx, "desk-locked": full.baseLockTx, "user-paid": full.baseClaimTx, "desk-claimed": full.bchClaimTx };
     const t0 = evs[0]?.at || Date.now();
-    const shown = { quote: full.quote, startedAt: Date.now(), events: [], running: true, createdAt: full.created, hash: full.hash };
+    const rdir = full.dir === "toBch" ? "toBch" : "toBase";
+    // show the card the way that swap was made: its direction, asset and amount
+    if (!busy) {
+      setDir(rdir);
+      const asset = rdir === "toBch" ? full.quote?.receive : full.quote?.pay;
+      if (asset === "PUSD" || asset === "BCH") setPay(asset);
+      const cents = Math.round(Number(full.quote?.usdcUnits || 0) / 1e4); // the preset it was made from
+      if (PRESETS_USD.includes(cents / 100)) setUsd(cents / 100);
+      // show where the coins went (the addresses are public on chain anyway)
+      if (rdir === "toBase" && /^0x[0-9a-fA-F]{40}$/.test(full.userBase || "") && !baseAddr) setBaseAddr(full.userBase);
+      if (rdir === "toBch" && /^[0-9a-f]{40}$/.test(full.userPkh || "") && !connected) {
+        const { encodeCashAddress } = await import("@bitauth/libauth");
+        const a = encodeCashAddress({ prefix: "bitcoincash", type: "p2pkh", payload: Uint8Array.from(full.userPkh.match(/../g).map((h) => parseInt(h, 16))) });
+        setBchTo(typeof a === "string" ? a : a.address);
+      }
+    }
+    const shown = { quote: full.quote, startedAt: Date.now(), events: [], running: true, createdAt: full.created, hash: full.hash, dir: rdir };
     setReplay(shown);
     evs.forEach((e) => {
       replayTimer.current = setTimeout(() => {
@@ -610,7 +626,7 @@ export default function DeskSwap({ manager, bchAccount, wcState, walletName, con
               <div className="replay-tag">
                 ▶ Replay of a real mainnet swap{replay.createdAt ? ` · ${new Date(replay.createdAt * 1000).toUTCString().slice(5, 22)} UTC` : ""}, real timings and transactions
               </div>
-              <Lanes quote={replay.quote} events={replay.events} startedAt={replay.startedAt} running={replay.running} replay />
+              <Lanes quote={replay.quote} events={replay.events} startedAt={replay.startedAt} running={replay.running} replay dir={replay.dir} />
             </>
           ) : (
             <div className="progress-empty">
