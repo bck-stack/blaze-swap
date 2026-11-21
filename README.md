@@ -101,10 +101,12 @@ Swaps through the desk. The first two rows are a person using the live page from
 The desk claims (`2a88a173…`, `d6411e08…`) are SwapLockV2 claims with no signature: one input whose unlocking bytecode
 is the secret and the redeem script, one output to the desk.
 
-The other way, played by `desk/scripts/reverse-smoke.mjs` (the desk's own test wallets play the user):
+The other way. The first row is a person on the live page: MetaMask locks the USDC on Base, the PUSD lands in a Selene
+wallet. The second was played by `desk/scripts/reverse-smoke.mjs` (the desk's own test wallets play the user):
 
 | Pay | Receive | User lock (Base) | Desk lock (BCH, signed by the desk) | PUSD to user (BCH) | Desk claim (Base) | Time |
 |---|---|---|---|---|---|---|
+| 0.05025 USDC (MetaMask) | 0.05 PUSD (Selene) | [0x0a45a40c…7a6c](https://basescan.org/tx/0x0a45a40cd0f2ac87d6cb0988594c320cb27f66314caf9c992041ddfffd3b7a6c) | [2655ec3a…005e](https://blockchair.com/bitcoin-cash/transaction/2655ec3a2a5f5282329913a605df5666be9753b5913e03322f75833e3c60005e) | [783a17b3…32ef](https://blockchair.com/bitcoin-cash/transaction/783a17b31e8e0ca134d7b70afb9711f5e9487ffa3344951dacb35e6586c232ef) | [0xa979e308…fd5b](https://basescan.org/tx/0xa979e308a81e16ab87bd041947a94ba0504fa1fd4cd7c6ba756619028ba1fd5b) | 13.0 s |
 | 0.05025 USDC | 0.05 PUSD | [0xb26ff7aa…ac8a](https://basescan.org/tx/0xb26ff7aa4ae3907f71ae8fb42adc74260b2cf5c69c73a822252a54e09cc3ac8a) | [976dc3f6…c8c6](https://blockchair.com/bitcoin-cash/transaction/976dc3f6c11e79bb10f2995550e85d13b81a50061a956f57093c995468f9c8c6) | [be5bb767…4908](https://blockchair.com/bitcoin-cash/transaction/be5bb7674e16f03eae97c8b8a3148d9d77e0838260315e2c16286988c38e4908) | [0x1cbd07fd…ec30](https://basescan.org/tx/0x1cbd07fd77f2f525331d12b2cf21674e987997918de5c11bd0286ac8aab5ec30) | 7.3 s |
 
 `SwapLock.sol` on Base: [`0xf66642c35cf4a36fcd7d3bcf87422791280f8901`](https://base.blockscout.com/address/0xf66642C35CF4A36FCD7d3Bcf87422791280F8901)
@@ -152,7 +154,7 @@ that only connected a BCH wallet. Since then:
 - the BLAZE Desk (`desk/`), live on Cloudflare, and the Swap tab: one card, live progress on both chains, replays of
   real swaps, a Base address made in the browser for people without one
 - desk swaps on mainnet with PUSD and with plain BCH, and from two phone wallets through the live page (Paytaca 10.2 s, Selene 4.2 s)
-- the other way through the desk: USDC on Base in, PUSD or BCH out, with the desk signing its own BCH inputs in plain JavaScript; ⇅ on the card flips the direction
+- the other way through the desk: USDC on Base in, PUSD or BCH out, with the desk signing its own BCH inputs in plain JavaScript; ⇅ on the card flips the direction (MetaMask → Selene, 13.0 s on mainnet)
 - found on the way: Selene sends its public keys a moment after the connection opens, so the page now waits for them
 - found on the way: WizardConnect sends the sign request as relay JSON (transaction hex, BigInts as text), so the page now converts CashScript's request before sending; both the Swap and the Peer to peer flows use it
 
