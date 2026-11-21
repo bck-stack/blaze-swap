@@ -526,6 +526,21 @@ select.network-select {
   font-size: 1.05rem;
   margin: 0;
 }
+.tested-wallets {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 0.45rem;
+  margin-top: 0.9rem;
+}
+.tested-wallets .tested-label {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.tested-wallets .wallet-pill {
+  cursor: default;
+}
 
 .desk-grid {
   display: grid;

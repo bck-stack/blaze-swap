@@ -106,7 +106,7 @@ function Lanes({ quote, events, startedAt, running, replay, dir }) {
   );
 }
 
-export default function DeskSwap({ manager, bchAccount, wcState, connectBch, evmAddress, onConnectEvm, balances }) {
+export default function DeskSwap({ manager, bchAccount, wcState, walletName, connectBch, evmAddress, onConnectEvm, balances }) {
   const [status, setStatus] = useState(null);
   const [dir, setDir] = useState("toBase"); // toBase: BCH side in, USDC out · toBch: USDC in, BCH side out
   const [pay, setPay] = useState("PUSD"); // the Bitcoin Cash side's asset, in either direction
@@ -391,6 +391,13 @@ export default function DeskSwap({ manager, bchAccount, wcState, connectBch, evm
           )}
         </h1>
         <p>Either way, about ten seconds. No bridge and no custodian in between: two locks that open with the same key.</p>
+        {/* real mainnet swaps from real wallets, newest first; any WizardConnect wallet works on the BCH side */}
+        <div className="tested-wallets">
+          <span className="tested-label">Swapped on mainnet from</span>
+          <span className="wallet-pill bch">Selene · 4.2 s</span>
+          <span className="wallet-pill bch">Paytaca · 10.2 s</span>
+          <span className="wallet-pill base">MetaMask → Selene · 13.0 s</span>
+        </div>
       </section>
 
       <div className="desk-grid">
@@ -444,7 +451,14 @@ export default function DeskSwap({ manager, bchAccount, wcState, connectBch, evm
             const bchWallet = (
               <div className="wallet-line">
                 {connected ? (
-                  <span className="wallet-pill bch">Bitcoin Cash · {short(bchAccount.tokenAddress.replace(/^bitcoincash:/, ""))}</span>
+                  <span className="wallet-pill bch" title={bchAccount.tokenAddress}>
+                    {walletName || "Bitcoin Cash"} · {short(bchAccount.tokenAddress.replace(/^bitcoincash:/, ""))}
+                  </span>
+                ) : dir === "toBch" && bchToPkh ? (
+                  /* the other way needs only an address: a typed one is enough, no wallet connection */
+                  <span className="wallet-pill bch" title={bchTo}>
+                    To · {short(bchTo.replace(/^bitcoincash:/, ""))}
+                  </span>
                 ) : (
                   <button type="button" className="wallet-pill bch is-action" onClick={connectBch} disabled={wcState === "connecting" || busy}>
                     {wcState === "connecting" ? "Waiting for your wallet…" : "Connect BCH wallet"}

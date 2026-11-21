@@ -824,6 +824,7 @@ export default function App() {
             manager={manager}
             bchAccount={bchAccount}
             wcState={wcState}
+            walletName={walletName}
             connectBch={connectBch}
             evmAddress={evmAddress}
             onConnectEvm={handleConnectEvm}
